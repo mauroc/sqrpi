@@ -45,7 +45,9 @@ while True:
     x = acceleration['x']
     y = acceleration['y']
     z = acceleration['z']
-
+            
+    #print(x,y,z)
+    
     # calculate squares of accel. for pitch, roll and vertical. Used to calculate RMS values  
     x_sq += x**2
     y_sq += y**2
@@ -56,6 +58,7 @@ while True:
     
     # double-integrate vert. accel. (to calculate wave height)
     delta_h += G*z_vert*dt*dt 
+    print("delta_h:   "+str(delta_h))
     
     # top or bottom of wave?
     if (delta_h < d[-1] and top    == 0): 
@@ -72,6 +75,7 @@ while True:
         sum_whts += wht-drop
         avg_whts = sum_whts/n
         top = bottom = 0
+        print('avg wave height:    '+str(avg_whts))
     
     # caclulate moving average of last n height samples to filter out high freq waves
     n=10
@@ -79,8 +83,7 @@ while True:
     drop = d.popleft() if len(d)>n else 0
     sum_h += delta_h-drop
     mav_h = sum_h/n
-            
-    #print(x,y,z)
+
 
     if t-log > 5:
         pitch, roll = math.sqrt(x_sq/samples), math.sqrt(y_sq/samples))        
@@ -93,7 +96,7 @@ while True:
 	 
         log = t
         
-        samples = x_sq = y_sq = z_sq = temperature = pressure = humidity = log = delta_h = top = bottom = 0  
+        samples = x_sq = y_sq = z_sq = top = bottom = 0  
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         nmea_str = "$SQPSR,"+str(temperature)+","+str(pressure)+''
         nmea_str_cs = format(reduce(operator.xor,map(ord,nmea_str),0),'X')
