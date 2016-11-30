@@ -21,13 +21,14 @@ sense = SenseHat()
 #os.remove('log_sec.txt')
 f= open("log_sec.txt", "w")
 f.write("time,temperature,pressure,humidity,pitch,roll,wave ht.\r\n")
-samples = x_sq = y_sq = z_sq = temperature = pressure = humidity = log = delta_h = max_h = min_h = sum_h = sum_whts = top = bottom = 0
+samples = x_sq = y_sq = z_sq = temperature = pressure = humidity = log = height = max_h = min_h = sum_h = sum_whts = top = bottom = 0
 prev_t = time.time()  
-d    = collections.deque([0])
+hts    = collections.deque([0])
 whts = collections.deque([0])
 
 while True:
     time.sleep(.2)
+    
     t = time.time()
     dt = t-prev_t
     prev_t = t
@@ -56,15 +57,15 @@ while True:
     # vertical non gravitational accel. relative to earth frame
     z_vert = sqrt(x_sq+y_sq+z_sq)-1 
     
-    # double-integrate vert. accel. (to calculate wave height)
-    delta_h += G*z_vert*dt*dt 
-    print("delta_h:   "+str(delta_h))
+    # double-integrate vert. accel. to calculate wave height
+    height += G*z_vert*dt*dt 
+    print("height:   "+str(height))
     
     # top or bottom of wave?
-    if (delta_h < d[-1] and top    == 0): 
-        top = d[-1]
-    if (delta_h > d[-1] and bottom == 0): 
-        bottom = d[-1]
+    if (height < hts[-1] and top    == 0): 
+        top = hts[-1]
+    if (height > hts[-1] and bottom == 0): 
+        bottom = hts[-1]
     
     # collect wave height and calculate moving average     
     n=10
@@ -79,9 +80,9 @@ while True:
     
     # caclulate moving average of last n height samples to filter out high freq waves
     n=10
-    d.append(delta_h)
-    drop = d.popleft() if len(d)>n else 0
-    sum_h += delta_h-drop
+    hts.append(height)
+    drop = hts.popleft() if len(hts)>n else 0
+    sum_h += height-drop
     mav_h = sum_h/n
 
 
@@ -102,7 +103,7 @@ while True:
         nmea_str_cs = format(reduce(operator.xor,map(ord,nmea_str),0),'X')
         nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
         nmea_str += "*"+nmea_str_cs+"\r\n"
-        sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+        sock.senseto( nmea_str, (GPS_IP, GPS_PORT))
         
         
 f.close()
