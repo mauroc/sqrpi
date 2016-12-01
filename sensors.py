@@ -21,7 +21,7 @@ sense = SenseHat()
 #os.remove('log_sec.txt')
 f= open("log_sec.txt", "w")
 f.write("time,temperature,pressure,humidity,pitch,roll,wave ht.\r\n")
-samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = log = height = max_h = min_h = sum_h = sum_whts = top = bottom = avg_whts = 0
+samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = log = height = max_h = min_h = sum_h = sum_whts = crest = trough = avg_whts = 0
 prev_t = time.time()  
 hts    = collections.deque([0])
 whts = collections.deque([0])
@@ -65,21 +65,21 @@ while True:
     height += delta 
     print("delta, height:   "+str(delta)+', '+str(height))
     
-    # top or bottom of wave?
-    if (height < hts[-1] and top    == 0): 
-        top = hts[-1]
-    if (height > hts[-1] and bottom == 0): 
-        bottom = hts[-1]
+    # crest or trough of wave?
+    if (height < hts[-1] and crest  == 0): 
+        crest = hts[-1]
+    if (height > hts[-1] and trough == 0): 
+        trough = hts[-1]
     
     # collect wave height and calculate moving average     
     n=10
-    if top and bottom:
-        wht =top-bottom
+    if crest and trough:
+        wht =crest-trough
         whts.append(wht)
         drop = whts.popleft() if len(whts)>n else 0
         sum_whts += wht-drop
         avg_whts = sum_whts/n
-        top = bottom = 0
+        crest = trough = 0
         print('avg wave height:    '+str(avg_whts))
     
     # caclulate moving average of last n height samples to filter out high freq waves
@@ -101,7 +101,7 @@ while True:
 	 
         log = t
         
-        samples = sum_x_sq = sum_y_sq = top = bottom = 0  
+        samples = sum_x_sq = sum_y_sq = crest = trough = 0  
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         nmea_str = "$SQPSR,"+str(temperature)+","+str(pressure)+''
         nmea_str_cs = format(reduce(operator.xor,map(ord,nmea_str),0),'X')
