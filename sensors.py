@@ -19,12 +19,16 @@ G=9.81
 
 sense = SenseHat()
 #os.remove('log_sec.txt')
-f= open("log_sec.txt", "w")
-f.write("time,temperature,pressure,humidity,pitch,roll,wave ht.\r\n")
-samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = log = height = max_h = min_h = sum_h = sum_whts = crest = trough = avg_whts = 0
+f=  open("log_sec.tcsv", "w")
+f2= open("wheights.csv", "w")
+f.write("""time,temperature,pressure,humidity,pitch,roll,wave ht.\r\n""")
+f2.write("time,wheight,avg_wheight\r\n")
+
+samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = log = vert_vel = height = sum_h = sum_whts = crest = trough = avg_whts = 0
 prev_t = time.time()  
 hts    = collections.deque([0])
 whts = collections.deque([0])
+t0  = time.time()
 
 while True:
     time.sleep(.2)
@@ -57,13 +61,15 @@ while True:
     #print('squares: ',round(x_sq,4), round(y_sq,4), round(z_sq,4))
 	
     # vertical non gravitational accel. relative to earth frame
-    z_vert = math.sqrt(x_sq+y_sq+z_sq)-0.9718511
+    z_vert = math.sqrt(x_sq+y_sq+z_sq)-0.97186
     #print('z_vert, dd', z_vert, dt)
 
     # double-integrate vert. accel. to calculate wave height
-    delta = G*z_vert*dt*dt if abs(z_vert) > 0.01 else 0
-    height += delta 
-    print("delta, height:   "+str(delta)+', '+str(height))
+    vert_acc  = G*z_vert if abs(z_vert) > 0.003 else 0
+    vert_vel  += vert_acc*dt 
+    height    += vert_vel*dt
+
+    #print("vert_vel, height:   "+str(vert_vel)+', '+str(height))
     
     # crest or trough of wave?
     if (height < hts[-1] and crest  == 0): 
@@ -79,15 +85,20 @@ while True:
         drop = whts.popleft() if len(whts)>n else 0
         sum_whts += wht-drop
         avg_whts = sum_whts/n
+        f2.write(str(round(t-t0,1))+', '+str(round(wht,2))+', '+str(round(avg_whts,2))+'\r\n')
         crest = trough = 0
-        print('avg wave height:    '+str(avg_whts))
+        #print('avg wave height:    '+str(avg_whts))
     
     # caclulate moving average of last n height samples to filter out high freq waves
-    n=10
+    n=4
     hts.append(height)
     drop = hts.popleft() if len(hts)>n else 0
     sum_h += height-drop
     mav_h = sum_h/n
+
+    log_msg = str(round(t-t0,1))+', '+str(round(vert_acc,4))+', '+str(round(vert_vel,4))+', '+str(round(height,4))+', '+str(round(mav_h,4))
+    print(log_msg)
+    f.write(log_msg+'\r\n')
 
 
     if t-log > 5:
@@ -96,8 +107,8 @@ while True:
         
         log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','+str(round(roll,4))+','+str(round(avg_whts,4)) 
 
-        print(log_str)
-        f.write(log_str+"\r\n")
+        #print(log_str)
+        #f.write(log_str+"\r\n")
 	 
         log = t
         
