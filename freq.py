@@ -1,6 +1,10 @@
+
+
+
 import math
 #from scipy.fftpack import fft, rfft
 from numpy import fft,array	
+import pylab as pl
 
 n=100
 signal=[0]*n
@@ -20,6 +24,9 @@ abs(spectrum[1]) # module
 freqs=fft.fftfreq(n)  # frequency values in spectrum
 
 for i in spectrum:
-   print(freqs[i],abs(spectrum[i])
+   print(str(freqs[i])+','+str(abs(spectrum[i])))
+
+plot(freqs, spectrum)
+
 
 
