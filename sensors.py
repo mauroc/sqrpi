@@ -19,12 +19,17 @@ G=9.81
 
 sense = SenseHat()
 #os.remove('log_sec.txt')
-f=  open("log_sec.tcsv", "w")
+f=  open("log_sec.csv", "w")
 f2= open("wheights.csv", "w")
 f.write("""time,temperature,pressure,humidity,pitch,roll,wave ht.\r\n""")
 f2.write("time,wheight,avg_wheight\r\n")
 
 samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = log = vert_vel = height = sum_h = sum_whts = crest = trough = avg_whts = 0
+
+tot_z = avg_z = 0.9718511
+sample_count=1
+prev_z_vert = 0
+
 prev_t = time.time()  
 hts    = collections.deque([0])
 whts = collections.deque([0])
@@ -39,9 +44,9 @@ while True:
     samples += 1
     
     # read environmental values from sensor and integrate them (to calculete RMS)
-    temperature += sense.get_temperature()
-    pressure    += sense.get_pressure()
-    humidity    += sense.get_humidity()
+    #temperature += sense.get_temperature()
+    #pressure    += sense.get_pressure()
+    #humidity    += sense.get_humidity()
     
     # read acceleration from IMU 
     acceleration = sense.get_accelerometer_raw()
@@ -60,14 +65,26 @@ while True:
     sum_y_sq += y_sq
     #print('squares: ',round(x_sq,4), round(y_sq,4), round(z_sq,4))
 	
+	
+    #print(z, tot_z,samples,avg_z)
     # vertical non gravitational accel. relative to earth frame
-    z_vert = math.sqrt(x_sq+y_sq+z_sq)-0.97186
-    #print('z_vert, dd', z_vert, dt)
+    #z_vert = math.sqrt(x_sq+y_sq+z_sq)-avg_z
+    z_vert = z - avg_z
+
+    #if abs(z_vert) > 2:
+    #    z_vert = prev_z_vert 
+    #prev_z_vert = z_vert
+    #print('z_vert, avg_z', round(z_vert,5), round(avg_z,5))
 
     # double-integrate vert. accel. to calculate wave height
-    vert_acc  = G*z_vert if abs(z_vert) > 0.003 else 0
-    vert_vel  += vert_acc*dt 
-    height    += vert_vel*dt
+    vert_acc  = G*z_vert #if abs(z_vert) > 0.0025/G else 0
+    if abs(vert_acc) > 0.0395:
+        vert_vel  += vert_acc*dt  
+        height    += vert_vel*dt
+    else:  
+        tot_z+=z	
+        sample_count+=1
+        avg_z = tot_z/(sample_count)        
 
     #print("vert_vel, height:   "+str(vert_vel)+', '+str(height))
     
@@ -96,16 +113,16 @@ while True:
     sum_h += height-drop
     mav_h = sum_h/n
 
-    log_msg = str(round(t-t0,1))+', '+str(round(vert_acc,4))+', '+str(round(vert_vel,4))+', '+str(round(height,4))+', '+str(round(mav_h,4))
+    log_msg = str(round(t-t0,4))+', '+str(round(vert_acc,4))+', '+str(round(vert_vel,4))+', '+str(round(height,4))+', '+str(round(mav_h,4))
     print(log_msg)
     f.write(log_msg+'\r\n')
 
 
     if t-log > 5:
         pitch, roll = math.sqrt(sum_x_sq/samples), math.sqrt(sum_y_sq/samples)        
-        temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
+        #temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
         
-        log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','+str(round(roll,4))+','+str(round(avg_whts,4)) 
+        #log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','+str(round(roll,4))+','+str(round(avg_whts,4)) 
 
         #print(log_str)
         #f.write(log_str+"\r\n")
