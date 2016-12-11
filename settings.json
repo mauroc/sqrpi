@@ -1,0 +1,7 @@
+{	
+	"window": 20, 
+	"sample_rate": 8, 
+	"offset_z": 0.978225246624319, 
+	"ipmux_addr": "127.0.0.1", 
+	"ipmux_port": 10112 
+}

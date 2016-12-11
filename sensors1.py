@@ -6,37 +6,42 @@ import collections
 import serial
 import socket
 import os
+import json
 
 from sense_hat import SenseHat
 from numpy import fft,array	
 import pylab as pl # sudo apt-get install python-matplotlib
 
-GPS_IP 		= "127.0.0.1"
-GPS_PORT	= 10112
-G			= 8.81
-Pi2 		= 2*math.pi
-In_mercury_bar = 29.53
-Ft_mt       = 3.28
-Offset_z2 	= 0.978225246624319 # run calibrate.py to obtain this value, with sensor board resting as horizontal as possible
+# Initialize constants
+G				= 8.81
+Pi2 			= 2*math.pi
+In_mercury_bar 	= 29.53
+Ft_mt       	= 3.28
 Display_charts 	= False
-Window 		= 20 #secs
-Sample_rate = 8.0 #hz
 
-
+# load settings
 def format_nmea(payload):
     nmea_str_cs = format(reduce(operator.xor,map(ord,payload),0),'X')
     nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
     nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
     return nmea_str
 
+config=json.loads(open('settings.json','r').read())
 
-sample_period 	= 1.0/Sample_rate
-n = int(Window*Sample_rate) #length of the signal array
-min_wave_period = 2  #secs
-max_wave_period = 20 #secs
-min_nyq_freq 	= n/(max_wave_period*int(Sample_rate)) 
-max_nyq_freq 	= n/(min_wave_period*int(Sample_rate)) 
+window 		= config['window'] 		# length of observation cycle (in secs)
+sample_rate = config['sample_rate'] # hz
+offset_z 	= config['offset_z'] 	# 0.978225246624319 # run calibrate.py to update this value, with sensor board resting as horizontal as possible
+ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
+ipmux_port	= config['ipmux_port'] 
 
+sample_period 	= 1.0/sample_rate
+n = int(window*sample_rate) 		# length of the signal array
+min_wave_period = 2  				# secs
+max_wave_period = 20 				# secs
+min_nyq_freq 	= n/(max_wave_period*int(sample_rate)) 
+max_nyq_freq 	= n/(min_wave_period*int(sample_rate)) 
+
+# initialize the sensor and log files
 sense = SenseHat()
 f=  open("log_sec.csv", "w")
 f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n""")
@@ -72,7 +77,7 @@ while True:
     sum_y_sq += y_sq
 
     z_vert = math.sqrt(x_sq+y_sq+z_sq)
-    vert_acc=G*(Offset_z2-z_vert)
+    vert_acc=G*(offset_z-z_vert)
 
     signal[samples]=vert_acc
     
@@ -82,7 +87,7 @@ while True:
 
     samples += 1
 
-    if t-log > Window:
+    if t-log > window:
 
 		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 		temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
@@ -94,9 +99,11 @@ while True:
 		spectrum = wf[min_nyq_freq:max_nyq_freq]
 
 		# replace complex numbers with real numbers
-		for i in range(len(spectrum)):
-		        spectrum[i]=abs(spectrum[i])/n*2
-		        #print(str(i)+', '+str(round(spectrum[i],4)) )
+		[ abs(x)/n for x in spectrum ]
+
+		#for i in range(len(spectrum)):
+		#        spectrum[i]=abs(spectrum[i])/n*2
+		#        #print(str(i)+', '+str(round(spectrum[i],4)) )
 
 		# identiy main frequency component
 		avg_value = sum(spectrum)/len(spectrum)
@@ -113,7 +120,7 @@ while True:
 				i+=1
 
 			# period in secs of main component
-			main_period = float(n)/(float(max_index+min_nyq_freq)*Sample_rate)
+			main_period = float(n)/(float(max_index+min_nyq_freq)*sample_rate)
 		
 			#estimate average wave height for main freq component
 			estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
@@ -126,7 +133,7 @@ while True:
 		if Display_charts:
 			freqs=fft.fftfreq(n)  # identify corrsesponding frequency values for x axis array (cycles/sample_units)
 		
-			freqs = [x*Sample_rate for x in freqs] # convert to hertz
+			freqs = [x*sample_rate for x in freqs] # convert to hertz
 
 			pl.plot(freqs[min_nyq_freq:max_nyq_freq], spectrum)
 			pl.show()
@@ -150,18 +157,18 @@ while True:
 		payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
         
         # send pitch and roll (rms values) and wave height to NMEA
 		payload = "RPXDR,A,"+str(round(pitch,4))+",D,rpi-pitch,A,"+str(round(roll,4))+",D,rpi-roll"   
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
 
 		payload = "RPMWH,"+str(round(estimated_wave_height*Ft_mt,4))+",F,"+str(round(estimated_wave_height,4))+",M"
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
 
 		# reset variables for new loop
 		signal = [0 for x in signal] 
