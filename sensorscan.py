@@ -28,11 +28,12 @@ def format_nmea(payload):
 
 config=json.loads(open('settings.json','r').read())
 
-window 		= config['window'] 		# length of observation cycle (in secs)
-sample_rate = config['sample_rate'] # hz
+window 		= config['window'] 		# length of observation frame (in secs)
+sample_rate = config['sample_rate'] # Hz
 offset_z 	= config['offset_z'] 	# 0.978225246624319 # run calibrate.py to update this value, with sensor board resting as horizontal as possible
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
+pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
 
 sample_period 	= 1.0/sample_rate
 n = int(window*sample_rate) 		# length of the signal array
@@ -42,6 +43,10 @@ min_nyq_freq 	= n/(max_wave_period*int(sample_rate))
 max_nyq_freq 	= n/(min_wave_period*int(sample_rate)) 
 
 # initialize the sensor and log files
+print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sending UDP datagrams to: {2}, port: {3}, Display_charts: {4}".format(window, sample_rate, ipmux_addr, \
+	ipmux_port, Display_charts))
+print("(Edit settings.json to update these settings)")
+
 sense = SenseHat()
 f=  open("log_sec.csv", "w")
 f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n""")
@@ -80,8 +85,8 @@ while True:
     vert_acc=G*(offset_z-z_vert)
 
     signal[samples]=vert_acc
-    
-    log_msg = str(samples)+', '+str(round(t-t0,4))+', '+str(round(vert_acc,4)) 
+
+    #log_msg = str(samples)+', '+str(round(t-t0,4))+', '+str(round(vert_acc,4)) 
     #print(log_msg)   
     #f.write(log_msg+'\r\n')
 
@@ -90,6 +95,10 @@ while True:
     if t-log > window:
 
 		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
+
+		if pitch_on_y_axis:
+			pitch, roll = roll, pitch
+
 		temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
 
 		# complete Fast Fourier transform of signal        
@@ -99,11 +108,8 @@ while True:
 		spectrum = wf[min_nyq_freq:max_nyq_freq]
 
 		# replace complex numbers with real numbers
-		[ abs(x)/n for x in spectrum ]
-
-		#for i in range(len(spectrum)):
-		#        spectrum[i]=abs(spectrum[i])/n*2
-		#        #print(str(i)+', '+str(round(spectrum[i],4)) )
+		for i in range(len(spectrum)):
+			spectrum[i]=abs(spectrum[i])/n
 
 		# identiy main frequency component
 		avg_value = sum(spectrum)/len(spectrum)
@@ -128,8 +134,6 @@ while True:
 			estimated_wave_height=0
 			main_period=0
 
-		#print('main period: '+str(round(main_period,4))+'sec., estimated wave height: '+str(round(estimated_wave_height,4))+' mt.' )
-	
 		if Display_charts:
 			freqs=fft.fftfreq(n)  # identify corrsesponding frequency values for x axis array (cycles/sample_units)
 		
@@ -160,7 +164,7 @@ while True:
 		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
         
         # send pitch and roll (rms values) and wave height to NMEA
-		payload = "RPXDR,A,"+str(round(pitch,4))+",D,rpi-pitch,A,"+str(round(roll,4))+",D,rpi-roll"   
+		payload = "RPXDR,A,"+str(round(pitch,4))+",D,PTCH,A,"+str(round(roll,4))+",D,ROLL"   
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
 		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
