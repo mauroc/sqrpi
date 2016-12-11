@@ -12,18 +12,26 @@ from numpy import fft,array
 import pylab as pl # sudo apt-get install python-matplotlib
 
 GPS_IP 		= "127.0.0.1"
-GPS_PORT	= 5005
-MON_IP 		= "127.0.0.4"
-MON_PORT	= 5005
-G		= 8.81
+GPS_PORT	= 10112
+G			= 8.81
 Pi2 		= 2*math.pi
+In_mercury_bar = 29.53
+Ft_mt       = 3.28
 Offset_z2 	= 0.978225246624319 # run calibrate.py to obtain this value, with sensor board resting as horizontal as possible
 Display_charts 	= False
 Window 		= 20 #secs
-Sample_rate 	= 8.0 #hz
+Sample_rate = 8.0 #hz
+
+
+def format_nmea(payload):
+    nmea_str_cs = format(reduce(operator.xor,map(ord,payload),0),'X')
+    nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
+    nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
+    return nmea_str
+
 
 sample_period 	= 1.0/Sample_rate
-n 		= int(Window*Sample_rate) #length of the signal array
+n = int(Window*Sample_rate) #length of the signal array
 min_wave_period = 2  #secs
 max_wave_period = 20 #secs
 min_nyq_freq 	= n/(max_wave_period*int(Sample_rate)) 
@@ -76,67 +84,89 @@ while True:
 
     if t-log > Window:
 
-	pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
-	temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
+		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
+		temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
 
-	# complete Fast Fourier transform of signal        
-        wf=fft.fft(signal)
+		# complete Fast Fourier transform of signal        
+		wf=fft.fft(signal)
 
-        # limit analysis to typical wave periods (e.g. between 2 and 20 secs)
-        spectrum = wf[min_nyq_freq:max_nyq_freq]
+		# limit analysis to typical wave periods (e.g. between 2 and 20 secs)
+		spectrum = wf[min_nyq_freq:max_nyq_freq]
 
-	# replace complex numbers with real numbers
-	for i in range(len(spectrum)):
-            spectrum[i]=abs(spectrum[i])/n*2
-            #print(str(i)+', '+str(round(spectrum[i],4)) )
+		# replace complex numbers with real numbers
+		for i in range(len(spectrum)):
+		        spectrum[i]=abs(spectrum[i])/n*2
+		        #print(str(i)+', '+str(round(spectrum[i],4)) )
 
-	# identiy main frequency component
-	avg_value = sum(spectrum)/len(spectrum)
-	max_value = max(spectrum)
-	max_index = spectrum.tolist().index(max_value)
+		# identiy main frequency component
+		avg_value = sum(spectrum)/len(spectrum)
+		max_value = max(spectrum)
+		max_index = spectrum.tolist().index(max_value)
 
-        if avg_value > 0.005:
-		# calculate total accel amplitude for main freq component (attempting to identify lateral a valid bandwidth of main component)
-		i=1
-		amp_main_freq = max_value
-		while max_index+i <= len(spectrum)-1 and max_index-i >= 0 and (spectrum[max_index+i]>avg_value or spectrum[max_index-i]>avg_value):
-		    amp_main_freq += spectrum[max_index+i]  if spectrum[max_index+i] > avg_value else 0
-		    amp_main_freq += spectrum[max_index-i]  if spectrum[max_index-i] > avg_value else 0
-		    i+=1
+		if avg_value > 0.005:
+			# calculate total accel amplitude for main freq component (attempting to identify lateral a valid bandwidth of main component)
+			i=1
+			amp_main_freq = max_value
+			while max_index+i <= len(spectrum)-1 and max_index-i >= 0 and (spectrum[max_index+i]>avg_value or spectrum[max_index-i]>avg_value):
+				amp_main_freq += spectrum[max_index+i]  if spectrum[max_index+i] > avg_value else 0
+				amp_main_freq += spectrum[max_index-i]  if spectrum[max_index-i] > avg_value else 0
+				i+=1
 
-		# period in secs of main component
-		main_period = float(n)/(float(max_index+min_nyq_freq)*Sample_rate)
+			# period in secs of main component
+			main_period = float(n)/(float(max_index+min_nyq_freq)*Sample_rate)
 		
-		#estimate average wave height for main freq component
-		estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
-	else:
-		estimated_wave_height=0
-		main_period=0
+			#estimate average wave height for main freq component
+			estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
+		else:
+			estimated_wave_height=0
+			main_period=0
 
-	print('main period: '+str(round(main_period,4))+'sec., estimated wave height: '+str(round(estimated_wave_height,4))+' mt.' )
-
-        if Display_charts:
-		freqs=fft.fftfreq(n)  # identify corrsesponding frequency values for x axis array (cycles/sample_units)
+		#print('main period: '+str(round(main_period,4))+'sec., estimated wave height: '+str(round(estimated_wave_height,4))+' mt.' )
+	
+		if Display_charts:
+			freqs=fft.fftfreq(n)  # identify corrsesponding frequency values for x axis array (cycles/sample_units)
 		
-		freqs = [x*Sample_rate for x in freqs] # convert to hertz
+			freqs = [x*Sample_rate for x in freqs] # convert to hertz
 
-		pl.plot(freqs[min_nyq_freq:max_nyq_freq], spectrum)
-		pl.show()
-		pl.plot(signal)
-		pl.show()
-		clean_signal=fft.ifft(wf) 
-		clean_signal = [x * n/2 for x in clean_signal]
-		pl.plot(clean_signal[0:n/2])
-		pl.show()
+			pl.plot(freqs[min_nyq_freq:max_nyq_freq], spectrum)
+			pl.show()
+			pl.plot(signal)
+			pl.show()
+			clean_signal=fft.ifft(wf) 
+			clean_signal = [x * n/2 for x in clean_signal]
+			pl.plot(clean_signal[0:n/2])
+			pl.show()
 
-        signal = [0 for x in signal] 
+		# write variables to log file
+		log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','\
+			+str(round(roll,4)) +','+str(round(estimated_wave_height,4))+','+str(round(main_period,4))  
+		print(log_str)
+		f.write(log_str+"\r\n")
+		f.flush()
 
-        log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','+str(round(roll,4)) +','+str(round(estimated_wave_height,4))+','+str(round(main_period,4))  
-        print(log_str)
-        f.write(log_str+"\r\n")
-        f.flush()
- 
-        log = t
-        samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = 0  
+
+		# send variables to NMEA IP address (using obsolete NMEA deprecated MDA for backward compativility on OpenCPN)
+		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+        
+        # send pitch and roll (rms values) and wave height to NMEA
+		payload = "RPXDR,A,"+str(round(pitch,4))+",D,rpi-pitch,A,"+str(round(roll,4))+",D,rpi-roll"   
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+
+		payload = "RPMWH,"+str(round(estimated_wave_height*Ft_mt,4))+",F,"+str(round(estimated_wave_height,4))+",M"
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str, (GPS_IP, GPS_PORT))
+
+		# reset variables for new loop
+		signal = [0 for x in signal] 
+		log = t
+		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = 0  
 
 f.close()
+
