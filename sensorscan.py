@@ -7,6 +7,7 @@ import serial
 import socket
 import os
 import json
+import random
 
 from sense_hat import SenseHat
 from numpy import fft,array	
@@ -53,15 +54,15 @@ f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period
 
 signal=[0]*n
 log = prev_t = t0 = time.time()  
-samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = 0
+samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = 0
 
 while True:
 	time.sleep(sample_period)
 
 	t = time.time()
 	dt = t-prev_t
+	sum_dt += dt
 	prev_t = t
-	#print(dt)
 	  
 	# read acceleration from IMU 
 	acceleration = sense.get_accelerometer_raw()
@@ -73,7 +74,6 @@ while True:
 	temperature += sense.get_temperature()
 	pressure    += sense.get_pressure()
 	humidity    += sense.get_humidity()         
-	#print('x,y,z values: ',round(x,4),round(y,4),round(z,4))
 
 	# calc vertical non gravitational accel. relative to earth frame
 	x_sq = x**2
@@ -85,15 +85,13 @@ while True:
 	z_vert = math.sqrt(x_sq+y_sq+z_sq)
 	vert_acc=G*(offset_z-z_vert)
 
-	#if t-log > window:
 	if (samples < n):
 		signal[samples]=vert_acc
-		#signal[samples]= math.sin(Pi2/5*t)
+		#signal[samples]= 1*math.sin(Pi2/5*t)+0.5*math.sin(Pi2/3*t)+2*math.sin(Pi2/8*t) # test with sine waves
 		samples += 1
-		#log_msg = str(samples)+', '+str(round(t-t0,4))+', '+str(round(vert_acc,4)) 
-		#print(log_msg)   
-		#f.write(log_msg+'\r\n')
 	else:
+		#act_sample_rate = samples/sum_dt
+		act_sample_rate=sample_rate
 		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 
 		if pitch_on_y_axis:
@@ -104,19 +102,21 @@ while True:
 		# complete Fast Fourier transform of signal        
 		wf=fft.fft(signal)
 
-		# limit analysis to typical wave periods (e.g. between 2 and 20 secs)
-		#spectrum = wf[min_nyq_freq:max_nyq_freq]
+		# limit analysis to typical wave periods to limit effects of sensor noise (e.g. period > 2 sec)
 		spectrum = wf[0:max_nyq_freq]
 	
-		#replace complex numbers with real numbers
+		max_value = tot_value = 0
 		for i in range(0,len(spectrum)):
+			#replace complex numbers with real numbers
 			spectrum[i]=abs(spectrum[i])/n
-		#spectrum = [abs(wf[i])/n for i in range(0,max_nyq_freq)]
-		
-		# identiy main frequency component
-		avg_value = sum(spectrum)/len(spectrum)
-		max_value = max(spectrum)
-		max_index = spectrum.tolist().index(max_value)
+			if i > 0:
+				# identify main frequency component (amplitude & freq).
+				if spectrum[i] > max_value:
+					max_index = i
+					max_value = spectrum[i]
+				tot_value += spectrum[i]
+		avg_value = tot_value /(len(spectrum)-1)			
+
 
 		if avg_value > 0.005:
 			# calculate total accel amplitude for main freq component (attempting to identify lateral a valid bandwidth of main component)
@@ -128,29 +128,35 @@ while True:
 				i+=1
 
 			# period in secs of main component
-			#main_period = float(n)/(float(max_index+min_nyq_freq)*sample_rate)
-			main_period = float(n)/(float(max_index)*sample_rate)
+			main_period = float(n)/(float(max_index)*act_sample_rate)
 		
 			#estimate average wave height for main freq component
 			estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
 
-			print("min niq freq {0}  max_nyq_freq {1}  avg_value{2} max_value{3} max_index{4} amp_main_freq {5} main_period {6} estimated_wave_height{7} spectrum {8}".format(0,max_nyq_freq, avg_value, max_value, max_index, amp_main_freq, main_period, estimated_wave_height, spectrum))
+			#print("max_nyq_freq {1}  avg_value{2} max_value{3} max_index{4} amp_main_freq {5} main_period {6} estimated_wave_height{7} spectrum {8}".format(max_nyq_freq, avg_value, max_value, max_index, amp_main_freq, main_period, estimated_wave_height, spectrum))
 
 		else:
 			estimated_wave_height=0
 			main_period=0
 
 		if Display_charts:
-			pl.plot(signal)
+			pl.title('Signal')
+			pl.xlabel('secs')
+			pl.ylabel('accel (m/sec2)')
+			pl.plot([float(i)/float(act_sample_rate) for i in range(n)],signal)
+			#pl.plot(signal)
 			pl.show()
 
 			n_freqs=fft.fftfreq(n)  # identify corrsesponding frequency values for x axis array (cycles/sample_units)
-			freqs=[n_freqs[i]*sample_rate for i in range(0,max_nyq_freq)]
-
+			freqs=[n_freqs[i]*act_sample_rate for i in range(0,max_nyq_freq)]
+			pl.title('Frequency Spectrum')
+			pl.xlabel('freq (Hz)')
+			pl.ylabel('accel (m/sec2)')
 			pl.plot(freqs, spectrum)
 			#pl.plot([ i*float(sample_rate)/float(n) for i in range(0,max_nyq_freq)],spectrum)
 			pl.show()
 
+			pl.title('Inverse Trasform of Signal')
 			clean_signal=fft.ifft(wf) 
 			clean_signal = [x for x in clean_signal]
 			pl.plot(clean_signal)
@@ -188,7 +194,7 @@ while True:
 		# reset variables for new loop
 		signal = [0 for x in signal] 
 		log = t
-		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = 0  
+		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = sum_dt = 0  
 
 f.close()
 
