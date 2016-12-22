@@ -90,8 +90,8 @@ while True:
 		#signal[samples]= 1*math.sin(Pi2/5*t)+0.5*math.sin(Pi2/3*t)+2*math.sin(Pi2/8*t) # test with sine waves
 		samples += 1
 	else:
-		#act_sample_rate = samples/sum_dt
-		act_sample_rate=sample_rate
+		act_sample_rate = samples/sum_dt
+		#act_sample_rate=sample_rate
 		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 
 		if pitch_on_y_axis:
@@ -102,19 +102,19 @@ while True:
 		# complete Fast Fourier transform of signal        
 		wf=fft.fft(signal)
         
-		 # identify corrsesponding frequency values for x axis array (cycles/sample_unit)
-        n_freqs=fft.fftfreq(n) 
+		# identify corrsesponding frequency values for x axis array (cycles/sample_unit)
+		n_freqs=fft.fftfreq(n) 
 		freqs=[n_freqs[i]*act_sample_rate for i in range(0,max_nyq_freq)]   # freqs in hertz
 
 		# limit analysis to typical wave periods to limit effects of sensor noise (e.g. period > 2 sec)
-		accels = wf[0:max_nyq_freq]
-        heights = [0]*len(accels)
+        	accels = wf[0:max_nyq_freq]
+		heights = [0]*len(accels)
 	
 		max_value = tot_value = m0 = 0
 		for i in range(0,len(accels)):
 			#replace complex numbers with real numbers
 			accels[i] = abs(accels[i])/n
-            heights[i]= accels[i]/((Pi2*freqs[i])**2)
+			heights[i]= accels[i]/((Pi2*freqs[i])**2)
             
 			if i > 0:
 				# identify main frequency component (amplitude & freq).
@@ -127,13 +127,13 @@ while True:
 
 
 		if avg_value > 0.005:
-            # calculate significant wave height 
-            sig_wave_height = 4*sqrt(m0)   
-            max_value = max([heights])
-            max_index = heights.index(max_value)
+			# calculate significant wave height 
+			sig_wave_height = 4*math.sqrt(m0)   
+			print("sig_wave_height: "+str(sig_wave_height))
+			max_value = max([heights])
+ 			max_index = heights.index(max_value)
 			# period in secs of main component
 			main_period = float(n)/(float(max_index)*act_sample_rate)
-		
 			#estimate average wave height for main freq component
 			estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
 
@@ -153,8 +153,10 @@ while True:
 
 			pl.title('Frequency Spectrum')
 			pl.xlabel('freq (Hz)')
-			pl.ylabel('accel (m/sec2)')
-			pl.plot(freqs, accels)
+			#pl.ylabel('accel (m/sec2)')
+			pl.ylabel('height (mt)')
+
+			pl.plot(freqs, heights)
 			#pl.plot([ i*float(sample_rate)/float(n) for i in range(0,max_nyq_freq)],accels)
 			pl.show()
 

@@ -1,5 +1,5 @@
 {
-	"window": 60, 
+	"window": 20, 
 	"sample_rate": 8, 
 	"offset_z": 0.978225246624319, 
 	"ipmux_addr": "192.168.1.64", 
