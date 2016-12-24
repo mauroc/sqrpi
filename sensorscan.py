@@ -124,7 +124,7 @@ while True:
 	
 		max_value = m0 = 0
 		for i in range(0,len(accels)):	
-    		if accels[i] > avg_acc:
+			if accels[i] > avg_acc:
 				heights[i]= rao(accels[i],freqs[i])/((Pi2*freqs[i])**2)
 				# identify main frequency component (amplitude & freq).
 				if heights[i] > max_value:
