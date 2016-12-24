@@ -8,7 +8,7 @@ import socket
 import os
 import json
 import random
-import operator
+#import operator
 
 from sense_hat import SenseHat
 from numpy import fft,array	
@@ -27,6 +27,12 @@ def format_nmea(payload):
     nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
     nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
     return nmea_str
+    
+def rao(accel,freq):
+    # returs acceleration adjusted to account for heave RAO (=transfer function of wave/boat system) 
+    # Assumes head seas, high wavelength/loa ratio (>2)
+    # 
+    return accel/1
 
 config=json.loads(open('settings.json','r').read())
 
@@ -39,9 +45,11 @@ pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side par
 
 sample_period 	= 1.0/sample_rate
 n = int(window*sample_rate) 		# length of the signal array
-min_wave_period = 2  				# secs
-#max_wave_period = 60 				# secs
-#min_nyq_freq 	= n/(max_wave_period*int(sample_rate)) 
+# We are applying a simplified constant df approach. NOAA currently uses requency bandwidths varying from 0.005 Hz at low frequencies to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
+df = sample_rate/n                  
+min_wave_period = 2  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
+max_wave_period = 30 				# secs
+min_nyq_freq 	= n/(max_wave_period*int(sample_rate)) 
 max_nyq_freq 	= n/(min_wave_period*int(sample_rate)) 
 
 # initialize the sensor and log files
@@ -50,7 +58,7 @@ print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sen
 print("(Edit settings.json to update these settings)")
 
 sense = SenseHat()
-f=  open("log_sec.csv", "w")
+f =  open("log_sec.csv", "w")
 f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n""")
 
 signal=[0]*n
@@ -88,7 +96,6 @@ while True:
 
 	if (samples < n):
 		signal[samples]=vert_acc
-		#signal[samples]= 1*math.sin(Pi2/5*t)+0.5*math.sin(Pi2/3*t)+2*math.sin(Pi2/8*t) # test with sine waves
 		samples += 1
 	else:
 		act_sample_rate = samples/sum_dt
@@ -105,40 +112,34 @@ while True:
         
 		# identify corrsesponding frequency values for x axis array (cycles/sample_unit)
 		n_freqs=fft.fftfreq(n) 
-		freqs=[n_freqs[i]*act_sample_rate for i in range(0,max_nyq_freq)]   # freqs in hertz
+		freqs=[n_freqs[i]*act_sample_rate for i in range(min_nyq_freq, max_nyq_freq)]   # freqs in hertz
 
 		# limit analysis to typical wave periods to limit effects of sensor noise (e.g. period > 2 sec)
-        	accels = wf[0:max_nyq_freq]
+		af = wf[min_nyq_freq:max_nyq_freq]
+        
+		#replace complex numbers with real numbers and calculate average accel (this could be performance-improved)
+		accels=[abs(af[i])/n for i in range(0,len(af)) ]
+		avg_acc = sum(accels)/(len(accels))
 		heights = [0]*len(accels)
 	
-		max_value = tot_value = m0 = 0
-		for i in range(0,len(accels)):
-			#replace complex numbers with real numbers
-			accels[i] = abs(accels[i])/n
-            
-			if i > 0:
-				heights[i]= accels[i]/((Pi2*freqs[i])**2)
+		max_value = m0 = 0
+		for i in range(0,len(accels)):	
+    		if accels[i] > avg_acc:
+				heights[i]= rao(accels[i],freqs[i])/((Pi2*freqs[i])**2)
 				# identify main frequency component (amplitude & freq).
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
-				tot_value += heights[i]
-                m0 += heights[i]*sample_rate/n #  height * df 
-		avg_value = tot_value /(len(accels)-1)			
+                m0 += heights[i]*df
 
-		#test
-
-		if avg_value > 0.005:
+		if avg_acc > 0.005:
 			# calculate significant wave height 
 			sig_wave_height = 4*math.sqrt(m0)   
 			print("sig_wave_height: "+str(sig_wave_height))
-			max_index, max_value = max(enumerate(heights), key=operator.itemgetter(1))
+			#max_index, max_value = max(enumerate(heights), key=operator.itemgetter(1))
 			# period in secs of main component
 			main_period = float(n)/(float(max_index)*act_sample_rate)
-			#estimate average wave height for main freq component
-			#estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
-
-			print("max_nyq_freq {0} avg_value{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_value, max_value, max_index, main_period, accels, heights))
+			print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, main_period, accels, heights))
 
 		else:
 			#estimated_wave_height=0
@@ -168,8 +169,8 @@ while True:
 			#pl.plot([ i*float(sample_rate)/float(n) for i in range(0,max_nyq_freq)],accels)
 			pl.show()
 
-			pl.title('Inverse Trasform of Signal')
-			clean_signal=fft.ifft(wf) 
+			pl.title('Inverse Trasform of filtered signal')
+			clean_signal=fft.ifft(af) 
 			clean_signal = [x for x in clean_signal]
 			pl.plot(clean_signal)
 			pl.show()
