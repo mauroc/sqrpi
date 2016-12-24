@@ -46,7 +46,7 @@ pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side par
 sample_period 	= 1.0/sample_rate
 n = int(window*sample_rate) 		# length of the signal array
 # We are applying a simplified constant df approach. NOAA currently uses requency bandwidths varying from 0.005 Hz at low frequencies to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
-df = sample_rate/n                  
+df = float(sample_rate)/float(n)                  
 min_wave_period = 2  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
 max_wave_period = 30 				# secs
 min_nyq_freq 	= n/(max_wave_period*int(sample_rate)) 
@@ -98,8 +98,8 @@ while True:
 		signal[samples]=vert_acc
 		samples += 1
 	else:
-		act_sample_rate = samples/sum_dt
-		#act_sample_rate=sample_rate
+		#act_sample_rate = samples/sum_dt
+		act_sample_rate=sample_rate
 		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 
 		if pitch_on_y_axis:
