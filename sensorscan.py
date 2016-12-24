@@ -19,7 +19,7 @@ G				= 8.81
 Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
-Display_charts 	= True
+Display_charts 	= False
 
 # load settings
 def format_nmea(payload):
@@ -130,17 +130,16 @@ while True:
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
-                m0 += heights[i]*df
+                	m0 += heights[i]*df
 
 		if avg_acc > 0.005:
 			# calculate significant wave height 
-			sig_wave_height = 4*math.sqrt(m0)   
+			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough   
 			print("sig_wave_height: "+str(sig_wave_height))
-			#max_index, max_value = max(enumerate(heights), key=operator.itemgetter(1))
+
 			# period in secs of main component
 			main_period = float(n)/(float(max_index)*act_sample_rate)
-			print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, main_period, accels, heights))
-
+			#print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, main_period, accels, heights))
 		else:
 			#estimated_wave_height=0
 			sig_wave_height=0
