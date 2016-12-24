@@ -8,6 +8,7 @@ import socket
 import os
 import json
 import random
+import operator
 
 from sense_hat import SenseHat
 from numpy import fft,array	
@@ -114,33 +115,34 @@ while True:
 		for i in range(0,len(accels)):
 			#replace complex numbers with real numbers
 			accels[i] = abs(accels[i])/n
-			heights[i]= accels[i]/((Pi2*freqs[i])**2)
             
 			if i > 0:
+				heights[i]= accels[i]/((Pi2*freqs[i])**2)
 				# identify main frequency component (amplitude & freq).
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
 				tot_value += heights[i]
-                m0 += heights[i]*freqs[-1]/max_nyq_freq
+                m0 += heights[i]*sample_rate/n #  height * df 
 		avg_value = tot_value /(len(accels)-1)			
 
+		#test
 
 		if avg_value > 0.005:
 			# calculate significant wave height 
 			sig_wave_height = 4*math.sqrt(m0)   
 			print("sig_wave_height: "+str(sig_wave_height))
-			max_value = max([heights])
- 			max_index = heights.index(max_value)
+			max_index, max_value = max(enumerate(heights), key=operator.itemgetter(1))
 			# period in secs of main component
 			main_period = float(n)/(float(max_index)*act_sample_rate)
 			#estimate average wave height for main freq component
-			estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
+			#estimated_wave_height = 2*amp_main_freq/((Pi2/main_period)**2) # accel amplitude / (2*Pi/T)^2 (=double sine integral constant) * 2 (=crest to trough)
 
-			#print("max_nyq_freq {1}  avg_value{2} max_value{3} max_index{4} amp_main_freq {5} main_period {6} estimated_wave_height{7} accels {8}".format(max_nyq_freq, avg_value, max_value, max_index, amp_main_freq, main_period, estimated_wave_height, accels))
+			print("max_nyq_freq {0} avg_value{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_value, max_value, max_index, main_period, accels, heights))
 
 		else:
-			estimated_wave_height=0
+			#estimated_wave_height=0
+			sig_wave_height=0
 			main_period=0
 
 		if Display_charts:
@@ -149,6 +151,12 @@ while True:
 			pl.ylabel('accel (m/sec2)')
 			pl.plot([float(i)/float(act_sample_rate) for i in range(n)],signal)
 			#pl.plot(signal)
+			pl.show()
+
+			pl.title('Frequency Spectrum')
+			pl.xlabel('freq (Hz)')
+			pl.ylabel('accel (m/sec2)')
+			pl.plot(freqs, accels)
 			pl.show()
 
 			pl.title('Frequency Spectrum')
@@ -172,7 +180,7 @@ while True:
 
 		# write variables to log file
 		log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','\
-			+str(round(roll,4)) +','+str(round(estimated_wave_height,4))+','+str(round(main_period,4))  
+			+str(round(roll,4)) +','+str(round(sig_wave_height,4))+','+str(round(main_period,4))  
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
@@ -190,7 +198,7 @@ while True:
 		print(nmea_str)
 		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
 
-		payload = "RPMWH,"+str(round(estimated_wave_height*Ft_mt,4))+",F,"+str(round(estimated_wave_height,4))+",M"
+		payload = "RPMWH,"+str(round(sig_wave_height*Ft_mt,4))+",F,"+str(round(sig_wave_height,4))+",M"
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
 		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
