@@ -122,7 +122,7 @@ while True:
 		avg_acc = sum(accels)/(len(accels))
 		heights = [0]*len(accels)
 	
-		max_value = m0 = 0
+		max_value = max_index = m0 = 0
 		for i in range(0,len(accels)):	
 			if accels[i] > avg_acc:
 				heights[i]= rao(accels[i],freqs[i])/((Pi2*freqs[i])**2)
@@ -130,9 +130,9 @@ while True:
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
-                	m0 += heights[i]*df
+                		m0 += heights[i]*df
 
-		if avg_acc > 0.005:
+		if max_index > 0 and avg_acc > 0.005:
 			# calculate significant wave height 
 			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough   
 			print("sig_wave_height: "+str(sig_wave_height))
