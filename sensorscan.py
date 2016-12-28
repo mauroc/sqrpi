@@ -37,7 +37,9 @@ def rao(accel,freq):
 config=json.loads(open('settings.json','r').read())
 
 window 		= config['window'] 		# length of observation frame (in secs)
-sample_rate = config['sample_rate'] # Hz
+sample_rate 	= config['sample_rate'] # Hz
+offset_x	= config['offset_x']
+offset_y	= config['offset_y']
 offset_z 	= config['offset_z'] 	# 0.978225246624319 # run calibrate.py to update this value, with sensor board resting as horizontal as possible
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
@@ -58,7 +60,7 @@ print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sen
 print("(Edit settings.json to update these settings)")
 
 sense = SenseHat()
-f =  open("log_sec.csv", "w")
+f =  open("log_sec.csv", "a")
 f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n""")
 
 signal=[0]*n
@@ -77,8 +79,11 @@ while True:
 	acceleration = sense.get_accelerometer_raw()
 
 	# acceleration relative to boat's frame
-	x = acceleration['x']
-	y = acceleration['y']
+	x = acceleration['x']-offset_x
+	y = acceleration['y']-offset_y
+
+	#print(x,y,offset_x,offset_y)
+
 	z = acceleration['z']   
 	temperature += sense.get_temperature()
 	pressure    += sense.get_pressure()
@@ -144,13 +149,12 @@ while True:
 			#estimated_wave_height=0
 			sig_wave_height=0
 			main_period=0
-
+		
 		if Display_charts:
 			pl.title('Signal')
 			pl.xlabel('secs')
 			pl.ylabel('accel (m/sec2)')
 			pl.plot([float(i)/float(act_sample_rate) for i in range(n)],signal)
-			#pl.plot(signal)
 			pl.show()
 
 			pl.title('Frequency Spectrum')
@@ -161,11 +165,8 @@ while True:
 
 			pl.title('Frequency Spectrum')
 			pl.xlabel('freq (Hz)')
-			#pl.ylabel('accel (m/sec2)')
 			pl.ylabel('height (mt)')
-
 			pl.plot(freqs, heights)
-			#pl.plot([ i*float(sample_rate)/float(n) for i in range(0,max_nyq_freq)],accels)
 			pl.show()
 
 			pl.title('Inverse Trasform of filtered signal')
@@ -184,7 +185,9 @@ while True:
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
-
+		
+		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, main_period))
+		
 		# send variables to NMEA IP address (using obsolete NMEA deprecated MDA for backward compativility on OpenCPN)
 		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 		payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
@@ -208,5 +211,6 @@ while True:
 		log = t
 		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = sum_dt = 0  
 
+sense.clear()
 f.close()
 
