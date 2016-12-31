@@ -2,6 +2,7 @@ import sys
 import math
 import operator
 import time
+import datetime
 import collections
 import serial
 import socket
@@ -20,6 +21,8 @@ Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
 Display_charts 	= False
+Log_filename    = "log_sec.csv"
+File_header		= """time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n"""
 
 # load settings
 def format_nmea(payload):
@@ -60,12 +63,13 @@ print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sen
 print("(Edit settings.json to update these settings)")
 
 sense = SenseHat()
-f =  open("log_sec.csv", "a")
-f.write("""time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n""")
+f =  open(Log_filename, "a")
+f.write(File_header)
 
 signal=[0]*n
 log = prev_t = t0 = time.time()  
 samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = 0
+archive_flag = False
 
 while True:
 	time.sleep(sample_period)
@@ -210,6 +214,18 @@ while True:
 		signal = [0 for x in signal] 
 		log = t
 		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = sum_dt = 0  
+
+		today = datetime.datetime.today()
+		if today.weekday == 0 and archive_flag:
+			f.close()
+			archive_filename="log_sec"+datetime.datetime.today().strftime("_%Y_%M_%d")+".csv"
+			os.system("cp {0} {1}".format(Log_filename,archive_filename))	
+			f =  open(Log_filename, "w")
+			f.write(File_header)					
+			archive_flag = False
+		elif today.weekday != 0:
+			archive_flag = True
+			
 
 sense.clear()
 f.close()
