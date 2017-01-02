@@ -199,7 +199,7 @@ while True:
 		print(nmea_str)
 		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
         
-        # send pitch and roll (rms values) and wave height to NMEA
+        	# send pitch and roll (rms values) and wave height to NMEA
 		payload = "RPXDR,A,"+str(round(pitch,4))+",D,PTCH,A,"+str(round(roll,4))+",D,ROLL"   
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
@@ -216,14 +216,14 @@ while True:
 		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = sum_dt = 0  
 
 		today = datetime.datetime.today()
-		if today.weekday == 0 and archive_flag:
+		if today.weekday() == 0 and archive_flag:
 			f.close()
-			archive_filename="log_sec"+datetime.datetime.today().strftime("_%Y_%M_%d")+".csv"
+			archive_filename="log_sec"+today.strftime("_%Y_%M_%d")+".csv"
 			os.system("cp {0} {1}".format(Log_filename,archive_filename))	
 			f =  open(Log_filename, "w")
 			f.write(File_header)					
 			archive_flag = False
-		elif today.weekday != 0:
+		elif today.weekday() != 0:
 			archive_flag = True
 			
 
