@@ -22,7 +22,7 @@ In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
 Display_charts 	= False
 Log_filename    = "log_sec.csv"
-File_header		= """time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n"""
+File_header		= """timestamp,date,time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n"""
 
 # load settings
 def format_nmea(payload):
@@ -184,7 +184,9 @@ while True:
 			# savefig('foo.png', bbox_inches='tight') #eliminate whitespaces at edge
 
 		# write variables to log file
-		log_str = str(t)+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','\
+		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
+		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
+		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','\
 			+str(round(roll,4)) +','+str(round(sig_wave_height,4))+','+str(round(main_period,4))  
 		print(log_str)
 		f.write(log_str+"\r\n")
@@ -218,7 +220,7 @@ while True:
 		today = datetime.datetime.today()
 		if today.weekday() == 0 and archive_flag:
 			f.close()
-			archive_filename="log_sec"+today.strftime("_%Y_%M_%d")+".csv"
+			archive_filename="log_sec"+today.strftime("_%Y_%m_%d")+".csv"
 			os.system("cp {0} {1}".format(Log_filename,archive_filename))	
 			f =  open(Log_filename, "w")
 			f.write(File_header)					
