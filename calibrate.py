@@ -9,7 +9,7 @@ from sense_hat import SenseHat
 sense = SenseHat()
 samples = sum_z_vert = sum_x = sum_y = sum_z = 0
 
-while samples<1000:
+while samples<200:
   
     samples += 1
     acceleration = sense.get_accelerometer_raw()

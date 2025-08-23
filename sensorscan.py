@@ -9,10 +9,11 @@ import socket
 import os
 import json
 import random
+from functools import reduce
 #import operator
 
 from sense_hat import SenseHat
-from numpy import fft,array	
+from numpy import fft,array
 import pylab as pl # sudo apt-get install python-matplotlib
 
 # Initialize constants
@@ -30,7 +31,7 @@ def format_nmea(payload):
     nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
     nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
     return nmea_str
-    
+
 def rao(accel,freq):
     # returs acceleration adjusted to account for heave RAO (=transfer function of wave/boat system) 
     # Assumes head seas, high wavelength/loa ratio (>2)
@@ -51,11 +52,11 @@ pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side par
 sample_period 	= 1.0/sample_rate
 n = int(window*sample_rate) 		# length of the signal array
 # We are applying a simplified constant df approach. NOAA currently uses requency bandwidths varying from 0.005 Hz at low frequencies to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
-df = float(sample_rate)/float(n)                  
+df = float(sample_rate)/float(n)
 min_wave_period = 2  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
 max_wave_period = 30 				# secs
-min_nyq_freq 	= n/(max_wave_period*int(sample_rate)) 
-max_nyq_freq 	= n/(min_wave_period*int(sample_rate)) 
+min_nyq_freq 	= int(n/(max_wave_period*int(sample_rate)))
+max_nyq_freq 	= int(n/(min_wave_period*int(sample_rate)))
 
 # initialize the sensor and log files
 print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sending UDP datagrams to: {2}, port: {3}, Display_charts: {4}".format(window, sample_rate, ipmux_addr, \
@@ -67,7 +68,7 @@ f =  open(Log_filename, "a")
 f.write(File_header)
 
 signal=[0]*n
-log = prev_t = t0 = time.time()  
+log = prev_t = t0 = time.time()
 samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = 0
 archive_flag = False
 
@@ -78,8 +79,8 @@ while True:
 	dt = t-prev_t
 	sum_dt += dt
 	prev_t = t
-	  
-	# read acceleration from IMU 
+
+	# read acceleration from IMU
 	acceleration = sense.get_accelerometer_raw()
 
 	# acceleration relative to boat's frame
@@ -88,10 +89,10 @@ while True:
 
 	#print(x,y,offset_x,offset_y)
 
-	z = acceleration['z']   
+	z = acceleration['z']
 	temperature += sense.get_temperature()
 	pressure    += sense.get_pressure()
-	humidity    += sense.get_humidity()         
+	humidity    += sense.get_humidity()
 
 	# calc vertical non gravitational accel. relative to earth frame
 	x_sq = x**2
@@ -116,34 +117,34 @@ while True:
 
 		temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
 
-		# complete Fast Fourier transform of signal        
+		# complete Fast Fourier transform of signal
 		wf=fft.fft(signal)
-        
+
 		# identify corrsesponding frequency values for x axis array (cycles/sample_unit)
-		n_freqs=fft.fftfreq(n) 
-		freqs=[n_freqs[i]*act_sample_rate for i in range(min_nyq_freq, max_nyq_freq)]   # freqs in hertz
+		n_freqs=fft.fftfreq(n)
+		freqs=[n_freqs[i]*act_sample_rate for i in range(int(min_nyq_freq), int(max_nyq_freq))]   # freqs in hertz
 
 		# limit analysis to typical wave periods to limit effects of sensor noise (e.g. period > 2 sec)
 		af = wf[min_nyq_freq:max_nyq_freq]
-        
+
 		#replace complex numbers with real numbers and calculate average accel (this could be performance-improved)
 		accels=[abs(af[i])/n for i in range(0,len(af)) ]
 		avg_acc = sum(accels)/(len(accels))
 		heights = [0]*len(accels)
-	
+
 		max_value = max_index = m0 = 0
-		for i in range(0,len(accels)):	
+		for i in range(0,len(accels)):
 			if accels[i] > avg_acc:
 				heights[i]= rao(accels[i],freqs[i])/((Pi2*freqs[i])**2)
 				# identify main frequency component (amplitude & freq).
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
-                		m0 += heights[i]*df
+				m0 += heights[i]*df
 
 		if max_index > 0 and avg_acc > 0.005:
-			# calculate significant wave height 
-			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough   
+			# calculate significant wave height
+			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough
 			print("sig_wave_height: "+str(sig_wave_height))
 
 			# period in secs of main component
@@ -153,7 +154,7 @@ while True:
 			#estimated_wave_height=0
 			sig_wave_height=0
 			main_period=0
-		
+
 		if Display_charts:
 			pl.title('Signal')
 			pl.xlabel('secs')
@@ -199,18 +200,18 @@ while True:
 		payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
         
         	# send pitch and roll (rms values) and wave height to NMEA
 		payload = "RPXDR,A,"+str(round(pitch,4))+",D,PTCH,A,"+str(round(roll,4))+",D,ROLL"   
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
 
 		payload = "RPMWH,"+str(round(sig_wave_height*Ft_mt,4))+",F,"+str(round(sig_wave_height,4))+",M"
 		nmea_str = format_nmea(payload) 
 		print(nmea_str)
-		sock.sendto( nmea_str, (ipmux_addr, ipmux_port))
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
 
 		# reset variables for new loop
 		signal = [0 for x in signal] 
