@@ -17,7 +17,8 @@ from numpy import fft,array
 import pylab as pl # sudo apt-get install python-matplotlib
 
 # Initialize constants
-G				= 8.81
+#G				= 8.81 found this at this value and suspect it was a typo?
+G				= 9.81
 Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
