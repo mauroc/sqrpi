@@ -22,11 +22,11 @@ G				= 9.81
 Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
-Display_charts 	= False
+Display_charts 	= True
 Log_filename    = "log_sec.csv"
-File_header		= """timestamp,date,time,temperature,pressure,humidity,pitch,roll,wave height,wave period\r\n"""
+File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,wave height,wave period\r\n"""
 
-# load settings
+# functions
 def format_nmea(payload):
     nmea_str_cs = format(reduce(operator.xor,map(ord,payload),0),'X')
     nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
@@ -58,13 +58,23 @@ def rao(accel,freq):
     # Also, from ref[3] it looks like in our frequency range it can be assumed that the heave RAO can be assumed to be reasonably close to 1
     return accel/1
 
+def disp_led_msg(vert_acc, pitch, roll):
+	if abs(vert_acc) > 2:
+		sense.clear(255,255,255)
+	if abs(pitch) > math.pi/6:
+		sense.clear(255,0,0)
+	if abs(roll) > math.pi/6:
+		sense.clear(0,0,255)
 
+#sine   = lambda x: math.sin(x)
+#cosine = lambda x: math.cos(x)
 
-
+# load settings
 config=json.loads(open('settings.json','r').read())
 
+# initialize variables
 window 		= config['window'] 		# length of observation frame (in secs)
-sample_rate 	= config['sample_rate'] # Hz
+sample_rate = config['sample_rate'] # Hz
 offset_x	= config['offset_x']
 offset_y	= config['offset_y']
 offset_z 	= config['offset_z'] 	# 0.978225246624319 # run calibrate.py to update this value, with sensor board resting as horizontal as possible
@@ -74,32 +84,35 @@ pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side par
 
 sample_period 	= 1.0/sample_rate
 n = int(window*sample_rate) 		# length of the signal array
-# We are applying a simplified constant df approach. NOAA currently uses requency bandwidths varying from 0.005 Hz at low frequencies to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
+
+# We are applying a simplified constant bandwidth approach. NOAA currently uses requency bandwidths varying from 0.005 Hz at low frequencies 
+# to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
 df = float(sample_rate)/float(n)
 min_wave_period = 2  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
 max_wave_period = 30 				# secs
 min_nyq_freq 	= int(n/(max_wave_period*int(sample_rate)))
 max_nyq_freq 	= int(n/(min_wave_period*int(sample_rate)))
 
-# initialize the sensor and log files
+signal=[0]*n # the array that holds the time series 
+log = prev_t = t0 = time.time()
+samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = avg_pitch = avg_roll = 0
+archive_flag = False
+
+# initialize the sensor 
+sense = SenseHat()
+
+# initialize log files
+f =  open(Log_filename, "a")
+f.write(File_header)
 print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sending UDP datagrams to: {2}, port: {3}, Display_charts: {4}".format(window, sample_rate, ipmux_addr, \
 	ipmux_port, Display_charts))
 print("(Edit settings.json to update these settings)")
+print(File_header)
 
-sense = SenseHat()
-f =  open(Log_filename, "a")
-f.write(File_header)
-
-signal=[0]*n
-log = prev_t = t0 = time.time()
-samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = abs_pitch = abs_roll = 0
-archive_flag = False
-
-sine   = lambda x: math.sin(x)
-cosine = lambda x: math.cos(x)
-
+# infinite loop ---------------------------------------------------------------------------------
 while True:
 	time.sleep(sample_period)
+	sense.clear()
 
 	t = time.time()
 	dt = t-prev_t
@@ -114,38 +127,42 @@ while True:
 	pressure    += sense.get_pressure()
 	humidity    += sense.get_humidity()
 
-	# acceleration relative to boat's frame
+	# accelerations relative to boat's frame
 	x = acceleration['x']-offset_x
 	y = acceleration['y']-offset_y
 	z = acceleration['z']-offset_z
 	pitch = gyro['pitch']
 	roll  = gyro['roll']
 
-	abs_pitch += abs(pitch)
-	abs_roll += abs(roll)
+	# calculate average pitch and roll
+	avg_pitch += abs(pitch if pitch < math.pi else (2*math.pi-pitch))
+	avg_roll  += abs(roll  if roll  < math.pi else (roll-2*math.pi))
 
-	# coeffs for Euler's tranformation (see ref 1)
+	# coeffs for Euler's tranformation 
 	# picth is positive when bow is up, roll is positive when starboard side is up
-	a = -sine(pitch)
-	b = sine(roll)*cosine(pitch)
-	c = cosine(roll)*cosine(pitch)
+	# (see ref 1)
+	a = -math.sin(pitch)
+	b = math.sin(roll)*math.cos(pitch)
+	c = math.cos(roll)*math.cos(pitch)
 	
 	# vertical, non gravitational accel relative to earth frame (in m/sec2)
 	#vert_acc = G*(1 - (a*x + b*y + c*z))
 	vert_acc = G*(a*x + b*y + c*z)
+	disp_led_msg(vert_acc, pitch, roll)
 
 	if (samples < n):
+		# get another sample
 		signal[samples]=vert_acc
 		samples += 1
 	else:
-		#act_sample_rate = samples/sum_dt
+		# end of sampling window
+		sense.clear
 		act_sample_rate=sample_rate
-		#pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 
 		if pitch_on_y_axis:
 			pitch, roll = roll, pitch
 
-		temperature, pressure, humidity, abs_pitch, abs_roll = temperature/samples, pressure/samples, humidity/samples, abs_pitch/samples, abs_roll/samples
+		temperature, pressure, humidity, avg_pitch, avg_roll = temperature/samples, pressure/samples, humidity/samples, avg_pitch/samples, avg_roll/samples
 
 		# complete Fast Fourier transform of signal
 		wf=fft.fft(signal)
@@ -154,7 +171,8 @@ while True:
 		n_freqs=fft.fftfreq(n)
 		freqs=[n_freqs[i]*act_sample_rate for i in range(int(min_nyq_freq), int(max_nyq_freq))]   # freqs in hertz
 
-		# limit analysis to typical wave periods to limit effects of sensor noise (e.g. period > 2 sec)
+		# limit analysis to typical wave periods to limit effects of high-freq sensor noise (e.g. period > 2 sec) and DC and low-freq "blow-up"
+		# (ref 3)
 		af = wf[min_nyq_freq:max_nyq_freq]
 
 		#replace complex numbers with real numbers and calculate average accel (this could be performance-improved)
@@ -165,7 +183,7 @@ while True:
 		max_value = max_index = m0 = 0
 		for i in range(0,len(accels)):
 			if accels[i] > avg_acc:
-				# Displacement is the second integral of acceleration. See ref 3: FFT to displacement conversion
+				# Displacement is the second integral of acceleration (ref 3)
 				wave_displ = freqs[i]/((Pi2*freqs[i])**2)
 				heights[i]= rao(accels[i],wave_displ)
 				# identify main frequency component (amplitude & freq).
@@ -185,7 +203,6 @@ while True:
 			dominant_period = float(n)/(float(max_index)*act_sample_rate)
 			#print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} dominant_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, dominant_period, accels, heights))
 		else:
-			#estimated_wave_height=0
 			sig_wave_height=0
 			dominant_period=0
 
@@ -196,13 +213,13 @@ while True:
 			pl.plot([float(i)/float(act_sample_rate) for i in range(n)],signal)
 			pl.show()
 
-			pl.title('Frequency Spectrum')
+			pl.title('Acceleration Frequency Spectrum')
 			pl.xlabel('freq (Hz)')
 			pl.ylabel('accel (m/sec2)')
 			pl.plot(freqs, accels)
 			pl.show()
 
-			pl.title('Frequency Spectrum')
+			pl.title('Displacement Frequency Spectrum')
 			pl.xlabel('freq (Hz)')
 			pl.ylabel('height (mt)')
 			pl.plot(freqs, heights)
@@ -221,15 +238,15 @@ while True:
 		# write variables to log file
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
-		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(abs_pitch*180/math.pi,4))+','\
-			+str(round(abs_roll*180/math.pi ,4)) +','+str(round(sig_wave_height,4))+','+str(round(dominant_period,4))  
+		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(avg_pitch*180/math.pi,1))+','\
+			+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dominant_period,4))  
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
 		
 		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, dominant_period))
 		
-		send_to_nmea(pressure, temperature, humidity, abs_pitch, abs_roll, sig_wave_height)
+		send_to_nmea(pressure, temperature, humidity, avg_pitch, avg_roll, sig_wave_height)
 
 		# reset variables for new loop
 		signal = [0 for x in signal] 
