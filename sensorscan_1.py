@@ -33,33 +33,11 @@ def format_nmea(payload):
     nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
     return nmea_str
 
-def send_to_nmea(pressure, temperature, humidity, pitch, roll, sig_wave_height):
-	# send variables to NMEA IP address (using obsolete NMEA deprecated MDA for backward compativility on OpenCPN)
-	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-	payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
-	nmea_str = format_nmea(payload) 
-	print(nmea_str)
-	sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
-
-	# send pitch and roll (rms values) and wave height to NMEA
-	payload = "RPXDR,A,"+str(round(pitch,4))+",D,PTCH,A,"+str(round(roll,4))+",D,ROLL"   
-	nmea_str = format_nmea(payload) 
-	print(nmea_str)
-	sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
-
-	payload = "RPMWH,"+str(round(sig_wave_height*Ft_mt,4))+",F,"+str(round(sig_wave_height,4))+",M"
-	nmea_str = format_nmea(payload) 
-	print(nmea_str)
-	sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
-
 def rao(accel,freq):
     # returs acceleration adjusted to account for heave RAO (=transfer function of wave/boat system) 
     # Assumes head seas, high wavelength/loa ratio (>2)
     # Also, from ref[3] it looks like in our frequency range it can be assumed that the heave RAO can be assumed to be reasonably close to 1
     return accel/1
-
-
-
 
 config=json.loads(open('settings.json','r').read())
 
@@ -92,11 +70,8 @@ f.write(File_header)
 
 signal=[0]*n
 log = prev_t = t0 = time.time()
-samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = abs_pitch = abs_roll = 0
+samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = 0
 archive_flag = False
-
-sine   = lambda x: math.sin(x)
-cosine = lambda x: math.cos(x)
 
 while True:
 	time.sleep(sample_period)
@@ -108,31 +83,27 @@ while True:
 
 	# read acceleration from IMU
 	acceleration = sense.get_accelerometer_raw()
-	gyro         = sense.get_orientation_radians()
-	gyro_deg = sense.get_orientation_degrees()
-	temperature += sense.get_temperature()
-	pressure    += sense.get_pressure()
-	humidity    += sense.get_humidity()
 
 	# acceleration relative to boat's frame
 	x = acceleration['x']-offset_x
 	y = acceleration['y']-offset_y
+
+	#print(x,y,offset_x,offset_y)
+
 	z = acceleration['z']-offset_z
-	pitch = gyro['pitch']
-	roll  = gyro['roll']
+	temperature += sense.get_temperature()
+	pressure    += sense.get_pressure()
+	humidity    += sense.get_humidity()
 
-	abs_pitch += abs(pitch)
-	abs_roll += abs(roll)
+	# calc vertical non gravitational accel. relative to earth frame
+	x_sq = x**2
+	y_sq = y**2
+	z_sq = z**2
+	sum_x_sq += x_sq
+	sum_y_sq += y_sq
 
-	# coeffs for Euler's tranformation (see ref 1)
-	# picth is positive when bow is up, roll is positive when starboard side is up
-	a = -sine(pitch)
-	b = sine(roll)*cosine(pitch)
-	c = cosine(roll)*cosine(pitch)
-	
-	# vertical, non gravitational accel relative to earth frame (in m/sec2)
-	#vert_acc = G*(1 - (a*x + b*y + c*z))
-	vert_acc = G*(a*x + b*y + c*z)
+	z_vert = math.sqrt(x_sq+y_sq+z_sq)
+	vert_acc=G*(z_vert)
 
 	if (samples < n):
 		signal[samples]=vert_acc
@@ -140,12 +111,12 @@ while True:
 	else:
 		#act_sample_rate = samples/sum_dt
 		act_sample_rate=sample_rate
-		#pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
+		pitch, roll = math.degrees(math.asin(math.sqrt(sum_x_sq/samples))), math.degrees(math.asin(math.sqrt(sum_y_sq/samples)))
 
 		if pitch_on_y_axis:
 			pitch, roll = roll, pitch
 
-		temperature, pressure, humidity, abs_pitch, abs_roll = temperature/samples, pressure/samples, humidity/samples, abs_pitch/samples, abs_roll/samples
+		temperature, pressure, humidity = temperature / samples, pressure / samples, humidity/samples
 
 		# complete Fast Fourier transform of signal
 		wf=fft.fft(signal)
@@ -165,29 +136,27 @@ while True:
 		max_value = max_index = m0 = 0
 		for i in range(0,len(accels)):
 			if accels[i] > avg_acc:
-				# Displacement is the second integral of acceleration. See ref 3: FFT to displacement conversion
+				# see ChatGPT answers: FFT to displacement conversion
 				wave_displ = freqs[i]/((Pi2*freqs[i])**2)
 				heights[i]= rao(accels[i],wave_displ)
 				# identify main frequency component (amplitude & freq).
 				if heights[i] > max_value:
 					max_index = i
 					max_value = heights[i]
-				# 0-moment of wave heights. See ref 2
 				m0 += heights[i]*df
 
 		if max_index > 0 and avg_acc > 0.005:
-			# calculate significant wave height. See ref 2 on how to calculate SWH from m0
+			# calculate significant wave height
 			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough
-
 			print("sig_wave_height: "+str(sig_wave_height))
 
 			# period in secs of main component
-			dominant_period = float(n)/(float(max_index)*act_sample_rate)
-			#print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} dominant_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, dominant_period, accels, heights))
+			main_period = float(n)/(float(max_index)*act_sample_rate)
+			#print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} main_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, main_period, accels, heights))
 		else:
 			#estimated_wave_height=0
 			sig_wave_height=0
-			dominant_period=0
+			main_period=0
 
 		if Display_charts:
 			pl.title('Signal')
@@ -221,15 +190,31 @@ while True:
 		# write variables to log file
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
-		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(abs_pitch*180/math.pi,4))+','\
-			+str(round(abs_roll*180/math.pi ,4)) +','+str(round(sig_wave_height,4))+','+str(round(dominant_period,4))  
+		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(pitch,4))+','\
+			+str(round(roll,4)) +','+str(round(sig_wave_height,4))+','+str(round(main_period,4))  
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
 		
-		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, dominant_period))
+		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, main_period))
 		
-		send_to_nmea(pressure, temperature, humidity, abs_pitch, abs_roll, sig_wave_height)
+		# send variables to NMEA IP address (using obsolete NMEA deprecated MDA for backward compativility on OpenCPN)
+		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		payload = "RPMDA,"+str(round(pressure/1000*In_mercury_bar,4))+",I,"+str(round(pressure/1000,4))+',B,'+str(round(temperature,4))+',C,'+str(round(humidity,4))+',,,,,,,,,,,,,'
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
+        
+        	# send pitch and roll (rms values) and wave height to NMEA
+		payload = "RPXDR,A,"+str(round(pitch,4))+",D,PTCH,A,"+str(round(roll,4))+",D,ROLL"   
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
+
+		payload = "RPMWH,"+str(round(sig_wave_height*Ft_mt,4))+",F,"+str(round(sig_wave_height,4))+",M"
+		nmea_str = format_nmea(payload) 
+		print(nmea_str)
+		sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
 
 		# reset variables for new loop
 		signal = [0 for x in signal] 
