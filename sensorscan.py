@@ -13,8 +13,11 @@ from functools import reduce
 #import operator
 
 from sense_hat import SenseHat
-from numpy import fft,array
+#from numpy import fft,array
+import numpy as np
 import pylab as pl # sudo apt-get install python-matplotlib
+import pdb
+from scipy.signal import detrend
 
 # Initialize constants
 #G				= 8.81 found this at this value and suspect it was a typo?
@@ -66,9 +69,6 @@ def disp_led_msg(vert_acc, pitch, roll):
 	if abs(roll) > math.pi/6:
 		sense.clear(0,0,255)
 
-#sine   = lambda x: math.sin(x)
-#cosine = lambda x: math.cos(x)
-
 # load settings
 config=json.loads(open('settings.json','r').read())
 
@@ -90,10 +90,10 @@ n = int(window*sample_rate) 		# length of the signal array
 df = float(sample_rate)/float(n)
 min_wave_period = 2  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
 max_wave_period = 30 				# secs
-min_nyq_freq 	= int(n/(max_wave_period*int(sample_rate)))
-max_nyq_freq 	= int(n/(min_wave_period*int(sample_rate)))
+min_freq = 1/max_wave_period
+max_freq = 1/min_wave_period
 
-signal=[0]*n # the array that holds the time series 
+signal = np.zeros(n) # [0]*n # the array that holds the time series 
 log = prev_t = t0 = time.time()
 samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = sum_dt = avg_pitch = avg_roll = 0
 archive_flag = False
@@ -150,73 +150,109 @@ while True:
 	vert_acc = G*(a*x + b*y + c*z)
 	disp_led_msg(vert_acc, pitch, roll)
 
+	load_file = 'manual_test.npy'
+	save_file = None  # 'manual_test'
+	
+	if load_file:
+		signal = np.load(load_file)
+		samples = n
+
 	if (samples < n):
 		# get another sample
 		signal[samples]=vert_acc
 		samples += 1
 	else:
 		# end of sampling window
+		if save_file:
+			np.save(save_file, signal)
+		
 		sense.clear
-		act_sample_rate=sample_rate
+		#pdb.set_trace()
+
+		#act_sample_rate=sample_rate
 
 		if pitch_on_y_axis:
 			pitch, roll = roll, pitch
 
 		temperature, pressure, humidity, avg_pitch, avg_roll = temperature/samples, pressure/samples, humidity/samples, avg_pitch/samples, avg_roll/samples
 
-		# complete Fast Fourier transform of signal
-		wf=fft.fft(signal)
+		#avg_signal = sum(signal)/n
+		#signal = signal - avg_signal
 
-		# identify corrsesponding frequency values for x axis array (cycles/sample_unit)
-		n_freqs=fft.fftfreq(n)
-		freqs=[n_freqs[i]*act_sample_rate for i in range(int(min_nyq_freq), int(max_nyq_freq))]   # freqs in hertz
+		signal = detrend(signal, type='constant')
+		# Fast Fourier transform of signal
+		# in testing, simulate with something like 
+		# t = np.arange(n) / sample_rate
+		# signal = 2.0*np.sin(2*np.pi*0.05*t) + 1*np.sin(2*np.pi*0.2*t) + 0.05*np.random.randn(n)
+		wf = np.fft.fft(signal)
+
+		# identify corrsesponding frequency, in Hertz, values for x axis array 
+		n_freqs = np.fft.fftfreq(n, 1/sample_rate) 
+		
+		# the fft returns both positive and negative frequencies, up to 1/2 of the sampling rate (Nyquist theorem) 
+		# need to only analyse freqs in our range of interest. This also eliminates all negative freqs
+		# ref 3
+		mask = ((n_freqs >= min_freq) & (n_freqs <= max_freq)) 
+		freqs = n_freqs[mask]
+		#freqs=[n_freqs[i]*act_sample_rate for i in range(int(min_nyq_freq), int(max_nyq_freq))]   
 
 		# limit analysis to typical wave periods to limit effects of high-freq sensor noise (e.g. period > 2 sec) and DC and low-freq "blow-up"
 		# (ref 3)
-		af = wf[min_nyq_freq:max_nyq_freq]
+		af = wf[mask]
 
-		#replace complex numbers with real numbers and calculate average accel (this could be performance-improved)
-		accels=[abs(af[i])/n for i in range(0,len(af)) ]
-		avg_acc = sum(accels)/(len(accels))
-		heights = [0]*len(accels)
+		# Normalize by N to recover amplitudes in m/s²
+		accels = af / n
 
-		max_value = max_index = m0 = 0
-		for i in range(0,len(accels)):
-			if accels[i] > avg_acc:
-				# Displacement is the second integral of acceleration (ref 3)
-				wave_displ = freqs[i]/((Pi2*freqs[i])**2)
-				heights[i]= rao(accels[i],wave_displ)
-				# identify main frequency component (amplitude & freq).
-				if heights[i] > max_value:
-					max_index = i
-					max_value = heights[i]
-				# 0-moment of wave heights. See ref 2
-				m0 += heights[i]*df
+		# Amplitude spectrum (m/s²), i.e. the module of complex array
+		# factor 2 for one-sided spectrum (except DC/Nyquist)
+		amp_spec = 2 * abs(accels)   
+		avg_acc = sum(amp_spec)/(len(amp_spec))
 
-		if max_index > 0 and avg_acc > 0.005:
-			# calculate significant wave height. See ref 2 on how to calculate SWH from m0
-			sig_wave_height = 2*4*math.sqrt(m0) # crest to trough
+		# Displacement (or heave) spectrum (m) 
+		heights = np.zeros_like(amp_spec)
+		nonzero = freqs > 0
+		
+		# enable an np array to operate a custom fuction on all alements
+		vectorized_rao = np.vectorize(rao) 
 
-			print("sig_wave_height: "+str(sig_wave_height))
+		# convert amplitudes to displacements by 2nd integration (ref3), and apply dynamic response transfer function
+		heights[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
+		heights = vectorized_rao(heights, freqs)
 
-			# period in secs of main component
-			dominant_period = float(n)/(float(max_index)*act_sample_rate)
-			#print("max_nyq_freq {0} avg_acc{1} max_value{2} max_index{3} dominant_period {4} accels {5} heights {6} ".format(max_nyq_freq, avg_acc, max_value, max_index, dominant_period, accels, heights))
+		# find index of highest waves
+		max_index 	= np.argmax(heights)
+
+		#if max_index > 0 and avg_acc > 0.005:
+		if True:
+			# find dominant period and max wave height
+			dom_freq 	= freqs[max_index]
+			dom_period 	= 1 / dom_freq
+			max_value 	= heights[max_index]
+
+			# power spectral density (m2/hz)
+			psd = (heights**2)/freqs 
+			# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
+			m0  = sum(psd*df) 
+			
+			# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
+			# note that this is **wave** height, so trough to crest (twice the amplitude)
+			sig_wave_height = 4 * math.sqrt(m0) 
+
 		else:
 			sig_wave_height=0
-			dominant_period=0
+			dom_period=0
 
 		if Display_charts:
 			pl.title('Signal')
 			pl.xlabel('secs')
 			pl.ylabel('accel (m/sec2)')
-			pl.plot([float(i)/float(act_sample_rate) for i in range(n)],signal)
+			pl.plot([float(i)/float(sample_rate) for i in range(200,300)],signal[200:300])
 			pl.show()
 
 			pl.title('Acceleration Frequency Spectrum')
 			pl.xlabel('freq (Hz)')
 			pl.ylabel('accel (m/sec2)')
-			pl.plot(freqs, accels)
+			pl.plot(freqs, amp_spec)
 			pl.show()
 
 			pl.title('Displacement Frequency Spectrum')
@@ -226,7 +262,7 @@ while True:
 			pl.show()
 
 			pl.title('Inverse Trasform of filtered signal')
-			clean_signal=fft.ifft(af) 
+			clean_signal=np.fft.ifft(af) 
 			clean_signal = [x for x in clean_signal]
 			pl.plot(clean_signal)
 			pl.show()
@@ -239,12 +275,12 @@ while True:
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
 		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(avg_pitch*180/math.pi,1))+','\
-			+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dominant_period,4))  
+			+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dom_period,4))  
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
 		
-		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, dominant_period))
+		#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, dom_period))
 		
 		send_to_nmea(pressure, temperature, humidity, avg_pitch, avg_roll, sig_wave_height)
 
