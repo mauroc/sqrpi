@@ -1,9 +1,10 @@
 {
-	"window": 60, 
-	"sample_rate": 8, 
-	"offset_z": 0.946784096987918, 
-	"offset_x":  0.025813944121822714,
-	"offset_y":  0.0008301521242246963,
+	"window": 180, 
+	"sample_rate": 4, 
+	"offset_z": 0.9776, 
+	"offset_x": -0.0114,
+	"offset_y":  0.0253 ,
+	"fwd_nmea": false,
 	"ipmux_addr": "127.0.0.1", 
 	"ipmux_port": 10112,
 	"pitch_on_y_axis": 1 
