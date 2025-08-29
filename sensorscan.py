@@ -7,6 +7,7 @@ import socket
 import os
 import json
 from functools import reduce
+import pynmea2 as nmea
 
 from sense_hat import SenseHat
 #from numpy import fft,array
@@ -26,7 +27,26 @@ Log_filename    = "log_sec.csv"
 File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,wave height,wave period\r\n"""
 
 # functions
+def delete_old_files(directory, days=3):
+	"""
+	Deletes files in the given directory that are older than 'days' days.
+	"""
+	now = time.time()
+	cutoff = now - (days * 86400)  # 86400 seconds = 1 day
+	if not os.path.isdir(directory):
+		print(f"Error: {directory} is not a valid directory")
+		return
+	for filename in os.listdir(directory):
+		filepath = os.path.join(directory, filename)
+		# Only delete files, not directories
+		if os.path.isfile(filepath):
+			file_mtime = os.path.getmtime(filepath)
+			if file_mtime < cutoff:
+				print(f"Deleting: {filepath}")
+				os.remove(filepath)
+
 def format_nmea(payload):
+	# this can probably be replaced with pynmea2 
     nmea_str_cs = format(reduce(operator.xor,map(ord,payload),0),'X')
     nmea_str_cs = "0"+nmea_str_cs if len(nmea_str_cs) == 1 else nmea_str_cs
     nmea_str = '$'+payload+"*"+nmea_str_cs+"\r\n"
@@ -232,10 +252,13 @@ while True:
 
 		#save content on main arrays for debugging
 		if len(load_file) == 0:
-			np.save('signal', signal)
-			np.save('amp_spec', amp_spec)
-			np.save('heights', heights)
-			np.save('freqs', freqs)
+			now = datetime.datetime.now().strftime("_%Y_%m_%d_%H_%M")
+			npy_dir = 'npyfiles/'
+			np.save(f'{npy_dir}signal{now}', signal)
+			np.save(f'{npy_dir}amp_spec{now}', amp_spec)
+			np.save(f'{npy_dir}heights{now}', heights)
+			np.save(f'{npy_dir}freqs{now}', freqs)
+			delete_old_files(npy_dir, days=3)
 
 		if max_index > 0 and avg_acc > 0.005:
 			# find dominant period and max wave height
