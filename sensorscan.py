@@ -23,7 +23,7 @@ Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
 Log_filename    = "log_sec.csv"
-File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,wave height,wave period\r\n"""
+File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,max_pitch, max_roll,min_pitch,min_roll,wave height,wave period\r\n"""
 Display_charts 	= False
 Debug_on 		= False
 
@@ -87,7 +87,7 @@ def disp_led_msg(vert_acc, pitch, roll):
 
 	if abs(vert_acc) > 2:
 		sense.clear(255,255,255)
-	if abs(pitch) > math.pi/6:
+	if abs(pitch) > math.pi/10:
 		sense.clear(255,0,0)
 	if abs(roll) > math.pi/6:
 		sense.clear(0,0,255)
@@ -122,7 +122,7 @@ max_freq = 1/min_wave_period
 signal = np.zeros(n) 
 
 #ys = np.zeros(n)
-samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = tot_elapsed = avg_pitch = avg_roll = pitch = roll = 0
+samples = temperature = pressure = humidity = sum_x_sq = sum_y_sq = tot_elapsed = avg_pitch = avg_roll = pitch = roll = max_pitch = min_pitch = max_roll = min_roll = 0
 archive_flag = False
 
 # initialize the sensor 
@@ -173,7 +173,11 @@ while True:
 		pitch = gyro['pitch']
 		roll  = gyro['roll']
 
-		# calculate average pitch and roll
+		# calculate max, min, average pitch and roll
+		max_pitch = max(max_pitch, pitch)
+		min_pitch = max(min_pitch, pitch)
+		max_roll = max(max_roll, roll)
+		min_roll = max(min_roll, roll)
 		avg_pitch += abs(pitch if pitch < math.pi else (2*math.pi-pitch))
 		avg_roll  += abs(roll  if roll  < math.pi else (roll-2*math.pi))
 
@@ -278,16 +282,15 @@ while True:
 			dom_period = 1/dom_freq
 			#max_value 	= heights[max_index] # this is rather meaningless, as the SWH is a better indicator
 
-			# power spectral density (m2/hz)
-			psd = (heights**2)/freqs 
+			# spectral density (m2/hz)
+			psd = (heights**2)/freqs 	# Power SD
+			asd = np.sqrt(psd) 			# Amplitude SD 
 
 			# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-			low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
-			#m0  = sum(psd[low_cutoff:]*df) 
-
 			# TODO it is not clear if m0 uses **power** spectral density, or **amplitude** spectral density. Ref 2 only refers to spectral density.
-			# Amplitude SD is (ref 3):
-			asd = np.sqrt(psd)
+			low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
+			
+			#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heights in real-life test 
 			m0  = sum(asd[low_cutoff:]*df) 
 			
 			# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
@@ -333,8 +336,13 @@ while True:
 		# write variables to log file
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
-		log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(avg_pitch*180/math.pi,1))+','\
-			+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dom_period,4))  
+		#log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(avg_pitch*180/math.pi,1))+','\
+		#	+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dom_period,4))  
+		
+		log_str =  f'{t},{t_date},{t_time},{round(temperature,3)},{round(pressure,3)},{round(humidity,3)}'
+		log_str += f'{round(avg_pitch*180/math.pi,1)},{round(avg_roll*180/math.pi ,1)},{round(max_pitch,1)},{round(max_roll,1)},{round(min_pitch,1)},{round(min_roll,1)}'
+		log_str += f'{round(sig_wave_height,4)},{round(dom_period,4)}'
+		
 		print(log_str)
 		f.write(log_str+"\r\n")
 		f.flush()
