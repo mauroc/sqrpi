@@ -22,11 +22,17 @@ G				= 9.81
 Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
-Display_charts 	= False
 Log_filename    = "log_sec.csv"
 File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,wave height,wave period\r\n"""
+Display_charts 	= False
+Debug_on 		= False
 
 # functions
+def moving_average(a, n=3):
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n
+
 def delete_old_files(directory, days=3):
 	"""
 	Deletes files in the given directory that are older than 'days' days.
@@ -78,6 +84,7 @@ def rao(accel,freq):
     return accel/1
 
 def disp_led_msg(vert_acc, pitch, roll):
+
 	if abs(vert_acc) > 2:
 		sense.clear(255,255,255)
 	if abs(pitch) > math.pi/6:
@@ -122,7 +129,6 @@ archive_flag = False
 sense = SenseHat()
 
 # debug settings
-debug_on = False
 load_file = ""
 
 # initialize log files
@@ -142,7 +148,7 @@ log =  t = time.time()
 
 while True:
 
-	if samples==0 and debug_on:
+	if samples==0 and Debug_on:
 		load_file = input("Load existing samples file? (Enter to skip) ")
 		if len(load_file)>0:
 			signal = np.load(load_file)
@@ -150,7 +156,8 @@ while True:
 
 	if (samples < n):
 		t = time.time()
-
+		
+		sense.clear()
 		# read acceleration from IMU
 		acceleration = sense.get_accelerometer_raw()
 		gyro         = sense.get_orientation_radians()
@@ -186,8 +193,6 @@ while True:
 		# signal[samples]=y
 		signal[samples]=vert_acc
 		
-		sense.clear()
-
 		# make sure the cycle executes once every 1/sample_time secs. Wait if needed
 		elapsed_time = time.time()-t
 		wait_time = 1/sample_rate - elapsed_time
@@ -221,8 +226,8 @@ while True:
 		n_freqs = np.fft.fftfreq(n, 1/sample_rate) 
 		
 		# the fft returns both positive and negative frequencies, up to 1/2 of the sampling rate (Nyquist theorem) 
-		# need to only analyse freqs in our range of interest. This also eliminates all negative freqs
-		# limit analysis to typical wave periods to limit effects of high-freq sensor noise (e.g. period > 2 sec) and DC and low-freq "blow-up"
+		# We need to eliminate negative frequencies and only analyse freqs in our range of interest
+		# to limit effects of high-freq sensor noise (e.g. period > 2 sec) and DC and low-freq "blow-up"
 		# (ref 3)
 		mask 	= ((n_freqs >= min_freq) & (n_freqs <= max_freq)) 
 		freqs 	= n_freqs[mask]
@@ -247,8 +252,6 @@ while True:
 		heights[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
 		heights = vectorized_rao(heights, freqs)
 
-		# find index of highest waves
-		max_index 	= np.argmax(heights)
 
 		#save content on main arrays for debugging
 		if len(load_file) == 0:
@@ -260,16 +263,32 @@ while True:
 			np.save(f'{npy_dir}freqs{now}', freqs)
 			delete_old_files(npy_dir, days=3)
 
-		if max_index > 0 and avg_acc > 0.005:
-			# find dominant period and max wave height
-			dom_freq 	= freqs[max_index]
-			dom_period 	= 1 / dom_freq
-			max_value 	= heights[max_index]
+		if avg_acc > 0.005:
+
+			# find index of highest waves using the moving average of *acceleration* spectrum . This is incorrect, in that it should be
+			# done on heights spectrum, and it may wrongly identify higher frequency peaks which do not correspond to highest waves. 
+			# TODO need to figure out a way to aliminate the effects of low-frequency blow-up
+			avg_window = 4
+			mavg_amp_spec = moving_average(amp_spec, avg_window)
+			#max_index 	= np.argmax(heights)
+
+			# find dominant period and max wave height 
+			max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)
+			dom_freq = freqs[max_index] 
+			dom_period = 1/dom_freq
+			#max_value 	= heights[max_index] # this is rather meaningless, as the SWH is a better indicator
 
 			# power spectral density (m2/hz)
 			psd = (heights**2)/freqs 
+
 			# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-			m0  = sum(psd*df) 
+			low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
+			#m0  = sum(psd[low_cutoff:]*df) 
+
+			# TODO it is not clear if m0 uses **power** spectral density, or **amplitude** spectral density. Ref 2 only refers to spectral density.
+			# Amplitude SD is (ref 3):
+			asd = np.sqrt(psd)
+			m0  = sum(asd[low_cutoff:]*df) 
 			
 			# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
 			# note that this is **wave** height, so trough to crest (twice the amplitude)
