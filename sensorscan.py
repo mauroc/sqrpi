@@ -23,7 +23,7 @@ Pi2 			= 2*math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28
 Log_filename    = "log_sec.csv"
-File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch_,avg_roll,max_pitch, max_roll,min_pitch,min_roll,wave height,wave period\r\n"""
+File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch,avg_roll,max_pitch,max_roll,wave_height,wave_period\r\n"""
 Display_charts 	= False
 Debug_on 		= False
 
@@ -141,7 +141,7 @@ if not append_data:
 print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sending UDP datagrams to: {2}, port: {3}, Display_charts: {4}".format(window, sample_rate, ipmux_addr, \
 	ipmux_port, Display_charts))
 print("(Edit settings.json to update these settings)\n\n")
-print(File_header+"-"*120)
+print(File_header+"-"*140)
 	
 # infinite loop ---------------------------------------------------------------------------------
 log =  t = time.time()
@@ -336,12 +336,12 @@ while True:
 		# write variables to log file
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 		t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
-		#log_str = str(t)+','+t_date+','+t_time+','+str(round(temperature,3))+','+str(round(pressure,3))+','+str(round(humidity,3))+','+str(round(avg_pitch*180/math.pi,1))+','\
-		#	+str(round(avg_roll*180/math.pi ,1)) +','+str(round(sig_wave_height,4))+','+str(round(dom_period,4))  
-		
-		log_str =  f'{t},{t_date},{t_time},{round(temperature,3)},{round(pressure,3)},{round(humidity,3)}'
-		log_str += f'{round(avg_pitch*180/math.pi,1)},{round(avg_roll*180/math.pi ,1)},{round(max_pitch,1)},{round(max_roll,1)},{round(min_pitch,1)},{round(min_roll,1)}'
-		log_str += f'{round(sig_wave_height,4)},{round(dom_period,4)}'
+		max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
+		max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
+
+		log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
+		log_str += f'{round(math.degrees(avg_pitch))},{round(math.degrees(avg_roll))},{round(math.degrees(max_pitch))},{round(math.degrees(max_roll))},'
+		log_str += f'{round(sig_wave_height,2)},{round(dom_period)}'
 		
 		print(log_str)
 		f.write(log_str+"\r\n")
@@ -354,7 +354,7 @@ while True:
 		# reset variables for new loop
 		signal = [0 for x in signal] 
 		log = t
-		samples = sum_x_sq = sum_y_sq = temperature = pressure = humidity = tot_elapsed = 0  
+		samples=sum_x_sq=sum_y_sq=temperature=pressure=humidity=tot_elapsed=max_pitch=max_roll = 0  
 
 		today = datetime.datetime.today()
 		if today.weekday() == 0 and archive_flag:

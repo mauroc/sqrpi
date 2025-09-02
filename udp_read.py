@@ -4,6 +4,37 @@ import json
 import time
 from collections import defaultdict
 
+import math
+
+def average_angle(angles, degrees=True):
+    """
+    Compute the average of a list of angles.
+    
+    :param angles: list of angles (degrees if degrees=True, else radians)
+    :param degrees: whether input/output are in degrees
+    :return: average angle
+    """
+    if degrees:
+        # convert to radians
+        angles = [math.radians(a) for a in angles]
+    
+    # Step 1 & 2: mean x and y components
+    x = sum(math.cos(a) for a in angles) / len(angles)
+    y = sum(math.sin(a) for a in angles) / len(angles)
+    
+    # Step 3: back to angle
+    avg = math.atan2(y, x)
+    
+    if degrees:
+        avg = math.degrees(avg)
+    
+    # Normalize to [0, 360) or [0, 2π)
+    if avg < 0:
+        avg += 360 if degrees else 2*math.pi
+    
+    return avg
+
+
 config=json.loads(open('settings.json','r').read())
 UDP_IP 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 UDP_PORT	= config['ipmux_port'] 
