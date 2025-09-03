@@ -92,6 +92,14 @@ def disp_led_msg(vert_acc, pitch, roll):
 	if abs(roll) > math.pi/6:
 		sense.clear(0,0,255)
 
+def disp_chart(x_values, y_values, title, xlabel, ylabel):
+	title and pl.title(title)
+	xlabel and pl.xlabel(xlabel)
+	ylabel and pl.ylabel(ylabel)
+	if y_values:
+		pl.plot(x_values , y_values)
+		pl.show()
+
 # load settings
 config=json.loads(open('settings.json','r').read())
 
@@ -304,34 +312,16 @@ while True:
 			dom_period=0
 
 		if Display_charts:
-			pl.title('Signal')
-			pl.xlabel('secs')
-			pl.ylabel('accel (m/sec2)')
-			pl.plot([float(i)/float(sample_rate) for i in range(200,400)],signal[200:400])
-			pl.show()
 
-			pl.title('Acceleration Frequency Spectrum')
-			pl.xlabel('freq (Hz)')
-			pl.ylabel('accel (m/sec2)')
-			pl.plot(freqs, amp_spec)
-			pl.show()
+			disp_chart([float(i)/float(sample_rate) for i in range(200,400)], signal[200:400], 'Signal', 'Secs', 'Accel (m/sec2)' )
 
-			pl.title('Displacement Frequency Spectrum')
-			pl.xlabel('freq (Hz)')
-			pl.ylabel('height (mt)')
-			pl.plot(freqs, heights)
-			pl.show()
+			disp_chart(freqs, amp_spec,  'Acceleration Frequency Spectrum', 'freq (Hz)', 'accel (m/sec2)')
 
-			pl.title('Inverse Trasform of filtered signal')
+			disp_chart(freqs, heights, 'Displacement Frequency Spectrum', 'freq (Hz)', 'Height (m)')
+
 			clean_signal=np.fft.ifft(af) 
 			clean_signal = [x for x in clean_signal]
-			pl.plot(clean_signal)
-			pl.show()
-
-			# savefig('foo.png') # rasterized 
-			# savefig('foo.pdf') # vectorized
-			# savefig('foo.png', bbox_inches='tight') #eliminate whitespaces at edge
-
+			disp_chart(None, clean_signal, 'Inverse Trasform of filtered signal', None, None)
 
 		# write variables to log file
 		t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
