@@ -9,11 +9,15 @@ import numpy as np
 import sys
 import math
 import pdb
+import os
 
 config=json.loads(open('settings.json','r').read())
 UDP_IP 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 UDP_PORT	= config['ipmux_port'] 
 Rec_interval = 60 # secs
+Log_filename    = "log_nmea.csv"
+File_header = """lat,lon,sog_kts,cog,hdg,hdg_mag,hdg_true,wind_sp_kts,wind_angle,depth_ft,depth_m,water_temp_c\r\n"""
+Current_module = sys.modules[__name__]
 
 print(f"UDP Receiver listening on {UDP_IP}:{UDP_PORT}")
 
@@ -107,55 +111,55 @@ def read_file():
             print('Parse error: {}'.format(e))
             continue
 
-current_module = sys.modules[__name__]
-file = open('nmealogs.txt', encoding='utf-8')
+# initialize log file
+print(File_header)
+append_data = os.path.exists(Log_filename)
+f =  open(Log_filename, "a") # append to exising file
+if not append_data:
+	f.write(File_header)
 
+#file = open('nmealogs.txt', encoding='utf-8') # use to test messages from file
 t0 = time.time()
-#while True:
+while True:
+#for line in file.readlines():
+    #message = nmea.parse(line)
 
-#pdb.set_trace()
-for line in file.readlines():
-    #create record object
     # Receive data (up to 1024 bytes) and sender's address
-    #data,addr = sock.recvfrom(1024)
-    message = nmea.parse(line)
-
-    elapsed = time.time() - t0
-
-    #if elapsed time > Rec_interval
-    #   calculate averages 
-    #   save rec to CSV
-    #   reset rec
-    #   reset timer
-    #   continue
+    data,addr = sock.recvfrom(1024)
 
     # Decode the received bytes to a string (assuming UTF-8 encoding)
-    #message = nmea.parse(data.decode('utf-8'))
+    message = nmea.parse(data.decode('utf-8'))
     
-    #print(f"Decoded message: '{message}' from {addr}")
     print(f"Decoded message: '{message}' from file")
 
     msg_type = message.sentence_type.lower()
 
-    if hasattr(current_module, msg_type):
-        func_name = getattr(current_module, msg_type)
-        func_name(message)
+    if hasattr(Current_module, msg_type):
+        # call the decoding function corresponding to the message_type
+        decoder = getattr(Current_module, msg_type)
+        decoder(message)
     else:
         print('undefined message type: ', msg_type)
     
-    #print(rec)
+    elapsed = time.time() - t0
+    if elapsed > Rec_interval:
+        # create the CSV record
+        rec_str  = f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
+        rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
+        rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
+        rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'
+        rec_str += f'{round(rec["depth_feet_ar"].mean(),2)},{round(rec["depth_meters_ar"].mean(),2)},'
+        rec_str += f'{round(rec["temperature_ar"].mean())}'
 
-header = 'lat,lon,sog_kts,cog,hdg,hdg_mag,hdg_true,wind_sp_kts,wind_angle,depth_ft,depth_m,water_temp_c'
+        # save record to CSV file
+        print(rec_str)
+        f.write(rec_str+"\r\n")
+        f.flush()
 
-print(header)
-
-rec_str  = f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
-rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
-rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
-rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'
-rec_str += f'{round(rec["depth_feet_ar"].mean(),2)},{round(rec["depth_meters_ar"].mean(),2)},'
-rec_str += f'{round(rec["temperature_ar"].mean())}'
+        rec={}
+        t0 = time.time()
+    
 
 
 
-print(rec_str)
+
