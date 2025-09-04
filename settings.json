@@ -5,7 +5,7 @@
 	"offset_x": -0.0114,
 	"offset_y":  0.0253 ,
 	"fwd_nmea": false,
-	"ipmux_addr": "127.0.0.1", 
-	"ipmux_port": 10112,
+	"ipmux_addr": "localhost", 
+	"ipmux_port": 10110,
 	"pitch_on_y_axis": 1 
 }

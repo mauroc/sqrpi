@@ -178,19 +178,19 @@ while True:
 		x = acceleration['x']-offset_x
 		y = acceleration['y']-offset_y
 		z = acceleration['z']-offset_z
+		# picth is positive when bow is up, roll is positive when starboard side is up
 		pitch = gyro['pitch']
 		roll  = gyro['roll']
 
 		# calculate max, min, average pitch and roll
 		max_pitch = max(max_pitch, pitch)
-		min_pitch = max(min_pitch, pitch)
+		min_pitch = min(min_pitch, pitch)
 		max_roll = max(max_roll, roll)
-		min_roll = max(min_roll, roll)
+		min_roll = min(min_roll, roll)
 		avg_pitch += abs(pitch if pitch < math.pi else (2*math.pi-pitch))
 		avg_roll  += abs(roll  if roll  < math.pi else (roll-2*math.pi))
 
 		# coeffs for Euler's tranformation 
-		# picth is positive when bow is up, roll is positive when starboard side is up
 		# (see ref 1)
 		a = -math.sin(pitch)
 		b = math.sin(roll)*math.cos(pitch)
@@ -290,16 +290,16 @@ while True:
 			dom_period = 1/dom_freq
 			#max_value 	= heights[max_index] # this is rather meaningless, as the SWH is a better indicator
 
-			# spectral density (m2/hz)
-			psd = (heights**2)/freqs 	# Power SD
-			asd = np.sqrt(psd) 			# Amplitude SD 
+			# spectral density 
+			psd = (heights**2)/freqs 	# Power SD (m2/hz)
+			asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
 
 			# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
 			# TODO it is not clear if m0 uses **power** spectral density, or **amplitude** spectral density. Ref 2 only refers to spectral density.
 			low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
 			
 			#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heights in real-life test 
-			m0  = sum(asd[low_cutoff:]*df) 
+			m0  = sum(psd[low_cutoff:]*df) 
 			
 			# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
 			# note that this is **wave** height, so trough to crest (twice the amplitude)
@@ -344,7 +344,7 @@ while True:
 		# reset variables for new loop
 		signal = [0 for x in signal] 
 		log = t
-		samples=sum_x_sq=sum_y_sq=temperature=pressure=humidity=tot_elapsed=max_pitch=max_roll = 0  
+		samples=sum_x_sq=sum_y_sq=temperature=pressure=humidity=tot_elapsed=max_pitch=max_roll=min_pitch=min_roll= 0  
 
 		today = datetime.datetime.today()
 		if today.weekday() == 0 and archive_flag:

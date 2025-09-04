@@ -13,10 +13,10 @@ import os
 
 config=json.loads(open('settings.json','r').read())
 UDP_IP 	= config['ipmux_addr']  # destination of NMEA UDP messages 
-UDP_PORT	= config['ipmux_port'] 
+UDP_PORT	= int(config['ipmux_port']) 
 Rec_interval = 60 # secs
 Log_filename    = "log_nmea.csv"
-File_header = """lat,lon,sog_kts,cog,hdg,hdg_mag,hdg_true,wind_sp_kts,wind_angle,depth_ft,depth_m,water_temp_c\r\n"""
+File_header = """timestamp,lat,lon,sog_kts,cog,hdg,hdg_mag,hdg_true,wind_sp_kts,wind_angle,depth_ft,depth_m,water_temp_c\r\n"""
 Current_module = sys.modules[__name__]
 
 print(f"UDP Receiver listening on {UDP_IP}:{UDP_PORT}")
@@ -24,9 +24,10 @@ print(f"UDP Receiver listening on {UDP_IP}:{UDP_PORT}")
 # Create a UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
 # Bind the socket to the specified address and port
-sock.bind((UDP_IP, UDP_PORT))
-
+sock.bind(("", UDP_PORT))
 
 rec={}
 
@@ -111,6 +112,7 @@ def read_file():
             print('Parse error: {}'.format(e))
             continue
 
+pdb.set_trace()
 # initialize log file
 print(File_header)
 append_data = os.path.exists(Log_filename)
@@ -126,9 +128,13 @@ while True:
 
     # Receive data (up to 1024 bytes) and sender's address
     data,addr = sock.recvfrom(1024)
+    
+    data_str=data.decode('utf-8')
+    if data_str[0]=="!":
+        continue
 
     # Decode the received bytes to a string (assuming UTF-8 encoding)
-    message = nmea.parse(data.decode('utf-8'))
+    message = nmea.parse(data_str)
     
     print(f"Decoded message: '{message}' from file")
 
@@ -137,14 +143,18 @@ while True:
     if hasattr(Current_module, msg_type):
         # call the decoding function corresponding to the message_type
         decoder = getattr(Current_module, msg_type)
-        decoder(message)
+        try:
+           decoder(message)
+        except:
+           print("Parsing Error *********************")
     else:
         print('undefined message type: ', msg_type)
     
     elapsed = time.time() - t0
     if elapsed > Rec_interval:
         # create the CSV record
-        rec_str  = f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
+        rec_str  = f'{round(time.time(),3)},'
+        rec_str += f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
         rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
         rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
         rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'
