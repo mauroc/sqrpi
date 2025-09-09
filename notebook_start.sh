@@ -4,4 +4,6 @@
 # also open port 8889 on UFW. 
 # sudo ufw enable 8889
 # see meail note
-jupyter notebook --allow-root --no-browser --port=8889
+
+#jupyter notebook --allow-root --no-browser --port=8889  # notebook classic is still installed so this shourl run if needed
+jupyter lab --allow-root --no-browser --ip=0.0.0.0 --port=8889
