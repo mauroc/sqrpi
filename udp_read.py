@@ -112,7 +112,7 @@ def read_file():
             print('Parse error: {}'.format(e))
             continue
 
-pdb.set_trace()
+#pdb.set_trace()
 # initialize log file
 print(File_header)
 append_data = os.path.exists(Log_filename)
