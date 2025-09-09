@@ -170,7 +170,7 @@ def transform(signal):
 def displacement(amp_spec):
 	""" 
 	Convert acceleration spectrum to heights (i.e. heave or displacement) by 2nd integration (ref3) 
-	Retrun displacement array (units: m)
+	Return displacement array (units: m)
 	"""
 	heights = np.zeros_like(amp_spec)
 	nonzero = freqs > 0
@@ -237,7 +237,7 @@ window 		= config['window'] 		# length of observation frame (in secs)
 sample_rate = config['sample_rate'] # Hz
 offset_x	= config['offset_x']
 offset_y	= config['offset_y']
-offset_z 	= config['offset_z'] 	# 0.978225246624319 # run calibrate.py to update this value, with sensor board resting as horizontal as possible
+offset_z 	= config['offset_z'] 	# run calibrate.py to update this value, with sensor board resting as horizontal as possible
 fwd_nmea    = config['fwd_nmea']
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
@@ -313,8 +313,11 @@ while True:
 		if len(load_file)>0:
 			signal = np.load(load_file)
 		else:
-			continue
+			# Simulated signal
+			tm = np.arange(n) / sample_rate
+			signal = 2.0*np.sin(2*np.pi*0.05*tm) + 1*np.sin(2*np.pi*0.2*tm) + 0.05*np.random.randn(n)
 	
+
 	# *** Data Analysis Step ***
 
 	sense.clear
@@ -323,28 +326,24 @@ while True:
 	if pitch_on_y_axis:
 		pitch, roll = roll, pitch
 
-	# calculate averages from cumulative values
+	# Calculate averages from cumulative values
 	temperature, pressure, humidity, avg_pitch, avg_roll = temperature/n, pressure/n, humidity/n, avg_pitch/n, avg_roll/n
 
-	# reduce impact of linear trends (slow drift) in the signal
+	# Reduce impact of linear trends (slow drift) in the signal
 	signal = detrend(signal, type='linear')
 
 	# Convert signal to frequency domain
-	# Calculate acceleration spectrum
-	# in development/testing, simulate signal with something like 
-	# 	t = np.arange(n) / sample_rate
-	# 	signal = 2.0*np.sin(2*np.pi*0.05*t) + 1*np.sin(2*np.pi*0.2*t) + 0.05*np.random.randn(n)
 	freqs, acc_spectrum = transform(signal)
 
-	# convert accelerations to heights (displacement)
+	# Convert accelerations to heights (displacement)
 	heights = displacement(acc_spectrum)
 
-	# apply dynamic response of vessel to wave action
+	# Apply dynamic response of vessel to wave action
 	vectorized_rao = np.vectorize(rao) # enable an np array to operate a custom fucntion on all alements
 	heights = vectorized_rao(heights, freqs)
 
 	if len(load_file) == 0:
-		#save content of main arrays for debugging
+		# Save content of main arrays for debugging
 		save_arrays()
 
 	if acc_spectrum.mean() > 0.005:
@@ -368,11 +367,9 @@ while True:
 	t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
 	max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
 	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
-
 	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
 	log_str += f'{round(math.degrees(avg_pitch))},{round(math.degrees(avg_roll))},{round(math.degrees(max_pitch))},{round(math.degrees(max_roll))},'
-	log_str += f'{round(sig_wave_height,2)},{round(dom_period)}'
-	
+	log_str += f'{round(sig_wave_height,2)},{round(dom_period)}'	
 	print(log_str)
 	f.write(log_str+"\r\n")
 	f.flush()

@@ -120,16 +120,15 @@ f =  open(Log_filename, "a") # append to exising file
 if not append_data:
 	f.write(File_header)
 
-#file = open('nmealogs.txt', encoding='utf-8') # use to test messages from file
+#file = open('nmealogs.txt', encoding='utf-8') # debug mode: use to test messages from file
 t0 = time.time()
 while True:
-#for line in file.readlines():
-    #message = nmea.parse(line)
+#for data_str in file.readlines(): #debug mode
 
     # Receive data (up to 1024 bytes) and sender's address
-    data,addr = sock.recvfrom(1024)
-    
-    data_str=data.decode('utf-8')
+    data,addr = sock.recvfrom(1024)    # comment in debug mode
+    data_str=data.decode('utf-8')      # comment in debug mode
+
     if data_str[0]=="!":
         continue
 
@@ -152,7 +151,7 @@ while True:
     
     elapsed = time.time() - t0
     if elapsed > Rec_interval:
-        # create the CSV record
+        # Once every Rec_interval (e.g. 1 minute), create the CSV record
         rec_str  = f'{round(time.time(),3)},'
         rec_str += f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
         rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'

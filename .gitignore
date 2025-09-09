@@ -4,3 +4,4 @@
 *.save
 *.save.*
 *.npy
+*.out
