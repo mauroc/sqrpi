@@ -130,8 +130,10 @@ def read_accel():
 	min_pitch = min(min_pitch, pitch)
 	max_roll = max(max_roll, roll)
 	min_roll = min(min_roll, roll)
-	avg_pitch += abs(pitch if pitch < Pi else (2*Pi - pitch))
-	avg_roll  += abs(roll  if roll  < Pi else (roll - 2*Pi))
+	#avg_pitch += abs(pitch if pitch < Pi else (2*Pi - pitch))
+	#avg_roll  += abs(roll  if roll  < Pi else (roll - 2*Pi))
+	avg_pitch += pitch**2 # calculate RMS
+	avg_roll  += roll**2  # calculate RMS
 
 	# coeffs for Euler's tranformation 
 	# (see ref 1)
@@ -235,10 +237,10 @@ config=json.loads(open('settings.json','r').read())
 # initialize global variables
 window 		= config['window'] 		# length of observation frame (in secs)
 sample_rate = config['sample_rate'] # Hz
-offset_x	= config['offset_x']
-offset_y	= config['offset_y']
-offset_z 	= config['offset_z'] 	# run calibrate.py to update this value, with sensor board resting as horizontal as possible
-fwd_nmea    = config['fwd_nmea']
+offset_x	= config['offset_x']	# the x axis accel. value at rest. run calibrate.py to update this value, with sensor board resting as horizontal as possible
+offset_y	= config['offset_y']	# the y axis accel. value at rest.
+offset_z 	= config['offset_z'] 	# the z axis accel. value at rest.
+fwd_nmea    = config['fwd_nmea']	# send SenseHat data as NMEA messages to UDP channel
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
 pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
@@ -326,8 +328,8 @@ while True:
 	if pitch_on_y_axis:
 		pitch, roll = roll, pitch
 
-	# Calculate averages from cumulative values
-	temperature, pressure, humidity, avg_pitch, avg_roll = temperature/n, pressure/n, humidity/n, avg_pitch/n, avg_roll/n
+	# Calculate averages / RMSs from cumulative values
+	temperature, pressure, humidity, avg_pitch, avg_roll = temperature/n, pressure/n, humidity/n, math.sqrt(avg_pitch/n), math.sqrt(avg_roll/n)
 
 	# Reduce impact of linear trends (slow drift) in the signal
 	signal = detrend(signal, type='linear')
@@ -351,7 +353,7 @@ while True:
 		sig_wave_height, dom_period =  calc_swh(acc_spectrum)
 		print("Significant Wave Height: ", sig_wave_height)
 	else:
-		sig_wave_height=0
+		sig_wave_height=0.0
 		dom_period=0
 
 	if Display_charts:
@@ -368,7 +370,7 @@ while True:
 	max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
 	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
 	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
-	log_str += f'{round(math.degrees(avg_pitch))},{round(math.degrees(avg_roll))},{round(math.degrees(max_pitch))},{round(math.degrees(max_roll))},'
+	log_str += f'{round(math.degrees(avg_pitch),1)},{round(math.degrees(avg_roll),1)},{round(math.degrees(max_pitch),1)},{round(math.degrees(max_roll),1)},'
 	log_str += f'{round(sig_wave_height,2)},{round(dom_period)}'	
 	print(log_str)
 	f.write(log_str+"\r\n")
@@ -382,7 +384,7 @@ while True:
 	# reset variables for new loop
 	signal.fill(0) #= [0 for x in signal] 
 	log = t
-	temperature=pressure=humidity=tot_elapsed=max_pitch=max_roll=min_pitch=min_roll= 0  
+	temperature = pressure = humidity = tot_elapsed = max_pitch = max_roll = min_pitch = min_roll = avg_pitch = avg_roll = 0  
 
 	today = datetime.datetime.today()
 	if today.weekday() == 0 and archive_flag:
