@@ -10,17 +10,16 @@ from functools import reduce
 import pynmea2 as nmea
 
 from sense_hat import SenseHat
-#from numpy import fft,array
 import numpy as np
 import pylab as pl # sudo apt-get install python-matplotlib
 import pdb
 from scipy.signal import detrend
 
 # Initialize constants
-G				= 9.81
+G				= 9.81  # acceleration of gravity: m/sec2
 Pi 			    = math.pi
 In_mercury_bar 	= 29.53
-Ft_mt       	= 3.28
+Ft_mt       	= 3.28  # feet/meter
 Log_filename    = "log_sec.csv"
 File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch,avg_roll,max_pitch,max_roll,wave_height,wave_period\r\n"""
 Display_charts 	= False
@@ -104,7 +103,7 @@ def disp_chart(x_values, y_values, title, xlabel, ylabel):
 def read_accel():
 	"""
 	Read values from senors and calculate vertical acceleration relative to the earth frame. 
-	Return vertical, non gravitational accel relative to earth frame (in m/sec2)
+	Return vertical (minus gravitational), accel relative to earth frame (in m/sec2)
 	"""
 
 	global temperature, pressure, humidity, pitch, roll, max_pitch, max_roll, min_pitch, min_roll, avg_pitch, avg_roll
@@ -171,15 +170,15 @@ def transform(signal):
 
 def displacement(amp_spec):
 	""" 
-	Convert acceleration spectrum to heights (i.e. heave or displacement) by 2nd integration (ref3) 
+	Convert acceleration spectrum to heave (=vertical displacement) spectrum  by 2nd integration (ref3) 
 	Return displacement array (units: m)
 	"""
-	heights = np.zeros_like(amp_spec)
+	heave_spectrum = np.zeros_like(amp_spec)
 	nonzero = freqs > 0
 
-	heights[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
+	heave_spectrum[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
 
-	return  heights
+	return  heave_spectrum
 
 def save_arrays():
 	""" Save signal, spectrum arrays etc. to a .npy file for debugging/analysis"""
@@ -187,7 +186,7 @@ def save_arrays():
 	npy_dir = 'npyfiles/'
 	np.save(f'{npy_dir}signal{now}', signal)
 	np.save(f'{npy_dir}amp_spec{now}', acc_spectrum)
-	np.save(f'{npy_dir}heights{now}', heights)
+	np.save(f'{npy_dir}heave_spectrum{now}', heave_spectrum)
 	np.save(f'{npy_dir}freqs{now}', freqs)
 	delete_old_files(npy_dir, days=3)
 
@@ -195,7 +194,7 @@ def calc_swh(acc_spectrum):
 	""" Calculate wave action main parameters. Return Significant Wave Height (m), Dominant Period) (sec)"""
 
 	# find index of highest waves using the moving average of *acceleration* spectrum . This is incorrect, in that it should be
-	# done on heights spectrum, and it may wrongly identify higher frequency peaks which do not correspond to highest waves. 
+	# done on heave spectrum, and it may wrongly identify higher frequency peaks which do not correspond to highest waves. 
 	# TODO need to figure out a way to aliminate the effects of low-frequency blow-up
 	avg_window = 4
 	mavg_amp_spec = moving_average(acc_spectrum, avg_window)
@@ -206,14 +205,14 @@ def calc_swh(acc_spectrum):
 	dom_period = 1/dom_freq
 
 	# spectral density 
-	psd = (heights**2)/freqs 	# Power SD (m2/hz)
+	psd = (heave_spectrum**2)/freqs 	# Power SD (m2/hz)
 	asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
 
 	# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
 	# TODO it is not clear if m0 uses **power** spectral density, or **amplitude** spectral density. Ref 2 only refers to spectral density.
 	low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
 	
-	#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heights in real-life test 
+	#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heave in real-life test 
 	m0  = sum(psd[low_cutoff:]*df) 
 	
 	# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
@@ -237,16 +236,19 @@ config=json.loads(open('settings.json','r').read())
 # initialize global variables
 window 		= config['window'] 		# length of observation frame (in secs)
 sample_rate = config['sample_rate'] # Hz
-offset_x	= config['offset_x']	# the x axis accel. value at rest. run calibrate.py to update this value, with sensor board resting as horizontal as possible
-offset_y	= config['offset_y']	# the y axis accel. value at rest.
-offset_z 	= config['offset_z'] 	# the z axis accel. value at rest.
+sample_period 	= 1.0/sample_rate
+n = int(window*sample_rate) 		# length of the signal and the spectrum arrays
+
+# Gravitational offsets: the x,y,z axes acceleration values at rest 
+# run calibrate.py to update thiese values in the settings file, with sensor board resting as horizontal as possible
+offset_x	= config['offset_x']	
+offset_y	= config['offset_y']	
+offset_z 	= config['offset_z'] 	
+
 fwd_nmea    = config['fwd_nmea']	# send SenseHat data as NMEA messages to UDP channel
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
 pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
-
-sample_period 	= 1.0/sample_rate
-n = int(window*sample_rate) 		# length of the signal and the spectrum arrays
 
 # Set frequency range and spectrum bandwidth. NOAA currently uses frequency bandwidths varying from 0.005 Hz at low frequencies 
 # to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
@@ -257,8 +259,10 @@ max_wave_period = 25 				# secs
 min_freq = 1/max_wave_period
 max_freq = 1/min_wave_period
 
-# the array that holds the time series 
-signal = np.zeros(n) 
+# the arrays that hold the time series and frequency spectra
+signal 			= np.zeros(n) 
+acc_spectrum 	= np.zeros(n) 
+heave_spectrum  = np.zeros(n) 
 
 temperature = pressure = humidity = tot_elapsed = avg_pitch = avg_roll = pitch = roll = max_pitch = min_pitch = max_roll = min_roll = 0
 archive_flag = False
@@ -326,6 +330,7 @@ while True:
 	#pdb.set_trace()
 	
 	if pitch_on_y_axis:
+		# invert axis of roll and pitch. Default is Rpi's wider side oriented parallel to boat's bow/sern axis 
 		pitch, roll = roll, pitch
 
 	# Calculate averages / RMSs from cumulative values
@@ -337,12 +342,12 @@ while True:
 	# Convert signal to frequency domain
 	freqs, acc_spectrum = transform(signal)
 
-	# Convert accelerations to heights (displacement)
-	heights = displacement(acc_spectrum)
+	# Convert accelerations to heave (=vertical displacement)
+	heave_spectrum = displacement(acc_spectrum)
 
 	# Apply dynamic response of vessel to wave action
 	vectorized_rao = np.vectorize(rao) # enable an np array to operate a custom fucntion on all alements
-	heights = vectorized_rao(heights, freqs)
+	heave_spectrum = vectorized_rao(heave_spectrum, freqs)
 
 	if len(load_file) == 0:
 		# Save content of main arrays for debugging
@@ -359,7 +364,7 @@ while True:
 	if Display_charts:
 		disp_chart([float(i)/float(sample_rate) for i in range(200,400)], signal[200:400], 'Signal', 'Secs', 'Accel (m/sec2)' )
 		disp_chart(freqs, acc_spectrum,  'Acceleration Frequency Spectrum', 'freq (Hz)', 'accel (m/sec2)')
-		disp_chart(freqs, heights, 'Displacement Frequency Spectrum', 'freq (Hz)', 'Height (m)')
+		disp_chart(freqs, heave_spectrum, 'Displacement Frequency Spectrum', 'freq (Hz)', 'Height (m)')
 		# clean_signal=np.fft.ifft(af) 
 		# clean_signal = [x for x in clean_signal]
 		# disp_chart(None, clean_signal, 'Inverse Trasform of filtered signal', None, None)
