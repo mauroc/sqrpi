@@ -1,4 +1,11 @@
-import sys
+#  Refs:
+# 1 A Comparison of Methods for Determining Significant Wave Heights—Applied to a 3-m Discus Buoy during Hurricane Katrina
+# 	https://journals.ametsoc.org/view/journals/atot/27/6/2010jtecho724_1.xml
+# 2 How are significant wave height, dominant period, average period, and wave steepness calculated?
+# 	https://www.ndbc.noaa.gov/faq/wavecalc.shtml
+# 3 FFT to displacement conversion
+#   https://chatgpt.com/share/68c34b5b-9094-8006-8243-bd34e5c36b7f
+
 import math
 import operator
 import time
@@ -209,8 +216,7 @@ def calc_swh(acc_spectrum):
 	asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
 
 	# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-	# TODO it is not clear if m0 uses **power** spectral density, or **amplitude** spectral density. Ref 2 only refers to spectral density.
-	low_cutoff = 2 # experimenting with limiting impact of low-freq blow up on SFW calc
+	low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
 	
 	#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heave in real-life test 
 	m0  = sum(psd[low_cutoff:]*df) 

@@ -29,7 +29,9 @@ sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 # Bind the socket to the specified address and port
 sock.bind(("", UDP_PORT))
 
-rec={}
+#rec={}
+
+rec = defaultdict(lambda: 0)
 
 def gll(msg):
     lat = float(msg.lat)/100 if msg.lat_dir == "N"  else -float(msg.lat)/100
@@ -135,7 +137,7 @@ while True:
     # Decode the received bytes to a string (assuming UTF-8 encoding)
     message = nmea.parse(data_str)
     
-    print(f"Decoded message: '{message}' from file")
+    print(f"Decoded message: {message}")
 
     msg_type = message.sentence_type.lower()
 
@@ -152,20 +154,23 @@ while True:
     elapsed = time.time() - t0
     if elapsed > Rec_interval:
         # Once every Rec_interval (e.g. 1 minute), create the CSV record
-        rec_str  = f'{round(time.time(),3)},'
-        rec_str += f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
-        rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
-        rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
-        rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'
-        rec_str += f'{round(rec["depth_feet_ar"].mean(),2)},{round(rec["depth_meters_ar"].mean(),2)},'
-        rec_str += f'{round(rec["temperature_ar"].mean())}'
-
+        try:
+            rec_str  = f'{round(time.time(),3)},'
+            rec_str += f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
+            rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
+            rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
+            rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'
+            rec_str += f'{round(rec["depth_feet_ar"].mean(),2)},{round( rec["depth_meters_ar"  ].mean(),2)},'
+            rec_str += f'{round(rec["temperature_ar"].mean())}'
+        except:
+            print("Output error *********************")
         # save record to CSV file
         print(rec_str)
         f.write(rec_str+"\r\n")
         f.flush()
 
-        rec={}
+        #rec={}
+        rec.clear()
         t0 = time.time()
     
 
