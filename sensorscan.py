@@ -375,6 +375,10 @@ while True:
 		# clean_signal = [x for x in clean_signal]
 		# disp_chart(None, clean_signal, 'Inverse Trasform of filtered signal', None, None)
 
+	# find nearby fix
+	if lb.find_nearby_fix(t):
+		lat, lon = lb.find_nearby_fix(t)
+		
 	# write variables to log file
 	t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
 	t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
@@ -382,7 +386,8 @@ while True:
 	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
 	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
 	log_str += f'{round(math.degrees(avg_pitch),1)},{round(math.degrees(avg_roll),1)},{round(math.degrees(max_pitch),1)},{round(math.degrees(max_roll),1)},'
-	log_str += f'{round(sig_wave_height,2)},{round(dom_period)}'	
+	log_str += f'{round(sig_wave_height,2)},{round(dom_period)},'	
+	log_str += f'{lat},{lon}'	
 	print(log_str)
 	f.write(log_str+"\r\n")
 	f.flush()
