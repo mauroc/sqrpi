@@ -21,6 +21,7 @@ import numpy as np
 import pylab as pl # sudo apt-get install python-matplotlib
 import pdb
 from scipy.signal import detrend
+import imp
 
 # Initialize constants
 G				= 9.81  # acceleration of gravity: m/sec2
@@ -33,11 +34,10 @@ Display_charts 	= False
 Debug_on 		= False
 
 # functions
-def moving_average(a, n=3):
-	""" Calculate moving ex-post average (backward/forward looking)"""
-	ret = np.cumsum(a, dtype=float)
-	ret[n:] = ret[n:] - ret[:-n]
-	return ret[n - 1:] / n
+
+# shared library
+imp.load_source('libs', '/home/mauro/sqrpi/lib/libs.py')
+import libs as lb
 
 def delete_old_files(directory, days=3):
 	"""
@@ -204,7 +204,7 @@ def calc_swh(acc_spectrum):
 	# done on heave spectrum, and it may wrongly identify higher frequency peaks which do not correspond to highest waves. 
 	# TODO need to figure out a way to aliminate the effects of low-frequency blow-up
 	avg_window = 4
-	mavg_amp_spec = moving_average(acc_spectrum, avg_window)
+	mavg_amp_spec = lb.moving_average(acc_spectrum, avg_window)
 
 	# find dominant period and max wave height 
 	max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)

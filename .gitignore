@@ -5,3 +5,5 @@
 *.save.*
 *.npy
 *.out
+.ipynb_checkpoints/*
+lib/__pycache__/
