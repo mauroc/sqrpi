@@ -9,7 +9,8 @@
 import math
 import operator
 import time
-import datetime
+from datetime import datetime
+import time
 import socket
 import os
 import json
@@ -23,13 +24,15 @@ import pdb
 from scipy.signal import detrend
 import imp
 
+print(time.time())
+
 # Initialize constants
 G				= 9.81  # acceleration of gravity: m/sec2
 Pi 			    = math.pi
 In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28  # feet/meter
 Log_filename    = "log_sec.csv"
-File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch,avg_roll,max_pitch,max_roll,wave_height,wave_period\r\n"""
+File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch,avg_roll,max_pitch,max_roll,wave_height,dom_period,modal_period,avg_period,lat,lon\r\n"""
 Display_charts 	= False
 Debug_on 		= False
 
@@ -38,24 +41,6 @@ Debug_on 		= False
 # shared library
 imp.load_source('libs', '/home/mauro/sqrpi/lib/libs.py')
 import libs as lb
-
-def delete_old_files(directory, days=3):
-	"""
-	Deletes files in the given directory that are older than 'days' days.
-	"""
-	now = time.time()
-	cutoff = now - (days * 86400)  # 86400 seconds = 1 day
-	if not os.path.isdir(directory):
-		print(f"Error: {directory} is not a valid directory")
-		return
-	for filename in os.listdir(directory):
-		filepath = os.path.join(directory, filename)
-		# Only delete files, not directories
-		if os.path.isfile(filepath):
-			file_mtime = os.path.getmtime(filepath)
-			if file_mtime < cutoff:
-				print(f"Deleting: {filepath}")
-				os.remove(filepath)
 
 def format_nmea(payload):
 	# this can probably be replaced with pynmea2 
@@ -149,10 +134,12 @@ def read_accel():
 	
 	#vert_acc = G*(1 - (a*x + b*y + c*z))
 	return G*(a*x + b*y + c*z)
-	
-def transform(signal):
-	""" Transform samples signal into frequency domain. Return n-sized arrays of Frequencies (Hz) and Complex Spectrum"""
 
+def transform(signal):
+	"""
+	Transform samples signal into frequency domain. Return n-sized arrays of Frequencies (Hz) and Complex Spectrum
+	"""
+	
 	# Fast Fourier transform of signal
 	wf = np.fft.fft(signal)
 
@@ -175,7 +162,7 @@ def transform(signal):
 	acc_spectrum = 2 * abs(accels)   
 	return  freqs, acc_spectrum
 
-def displacement(amp_spec):
+def heave(freqs, amp_spec):
 	""" 
 	Convert acceleration spectrum to heave (=vertical displacement) spectrum  by 2nd integration (ref3) 
 	Return displacement array (units: m)
@@ -187,54 +174,45 @@ def displacement(amp_spec):
 
 	return  heave_spectrum
 
-def save_arrays():
-	""" Save signal, spectrum arrays etc. to a .npy file for debugging/analysis"""
-	now = datetime.datetime.now().strftime("_%Y_%m_%d_%H_%M")
-	npy_dir = 'npyfiles/'
-	np.save(f'{npy_dir}signal{now}', signal)
-	np.save(f'{npy_dir}amp_spec{now}', acc_spectrum)
-	np.save(f'{npy_dir}heave_spectrum{now}', heave_spectrum)
-	np.save(f'{npy_dir}freqs{now}', freqs)
-	delete_old_files(npy_dir, days=3)
+def calc_swh(freqs,acc_spectrum, heave_spectrum):
 
-def calc_swh(acc_spectrum):
-	""" Calculate wave action main parameters. Return Significant Wave Height (m), Dominant Period) (sec)"""
+    """ 
+    Calculate nondirectional wave action main parameters. Return Significant Wave Height (m), Dominant Period) (s), Modal Period (s), Average Period (s)
+    """
 
-	# find index of highest waves using the moving average of *acceleration* spectrum . This is incorrect, in that it should be
-	# done on heave spectrum, and it may wrongly identify higher frequency peaks which do not correspond to highest waves. 
-	# TODO need to figure out a way to aliminate the effects of low-frequency blow-up
-	avg_window = 4
-	mavg_amp_spec = lb.moving_average(acc_spectrum, avg_window)
+    # TODO need to figure out a way to aliminate the effects of low-frequency blow-up
+    avg_window = 4
+    mavg_amp_spec = lb.moving_average(acc_spectrum, avg_window)
 
-	# find dominant period and max wave height 
-	max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)
-	dom_freq = freqs[max_index] 
-	dom_period = 1/dom_freq
+    # Modal Period
+    # find highest point (mode) in the frequency spectrum using a moving average
+    max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)
+    modal_frequency = freqs[max_index] 
+    modal_period = 1/modal_frequency
 
-	# spectral density 
-	psd = (heave_spectrum**2)/freqs 	# Power SD (m2/hz)
-	asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
+    # spectral density (ref2)
+    psd = (heave_spectrum**2)/freqs 	# Power SD (m2/hz)
+    asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
 
-	# zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-	low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
-	
-	#m0  = sum(psd[low_cutoff:]*df) # this seems to generate excessive heave in real-life test 
-	m0  = sum(psd[low_cutoff:]*df) 
-	
-	# SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
-	# note that this is **wave** height, so trough to crest (twice the amplitude)
-	sig_wave_height = 4 * math.sqrt(m0)
+    # dominant period (ref2)
+    max_index = np.argmax(psd)
+    dominant_period = 1/freqs[max_index]
 
-	return sig_wave_height,  dom_period
+    # zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
+    low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
+    m0  = sum(psd[low_cutoff:]*df) 
 
-def archive_files(f):
-	""" Copy log_file to an archive file with today's date """
-	f.close()
-	archive_filename="log_sec"+today.strftime("_%Y_%m_%d")+".csv"
-	os.system("cp {0} {1}".format(Log_filename,archive_filename))	
-	f =  open(Log_filename, "w")
-	f.write(File_header)					
-	archive_flag = False
+    # average period (ref 2)
+    freqs2=freqs**2
+    m2=sum(np.multiply(psd,freqs2)*df)
+    avg_period = math.sqrt(m0/m2)
+    
+    # SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
+    # note that this is **wave** height, so trough to crest (twice the amplitude)
+    sig_wave_height = 4 * math.sqrt(m0)
+
+    return sig_wave_height, dominant_period, modal_period, avg_period
+
 
 # load settings
 config=json.loads(open('settings.json','r').read())
@@ -243,6 +221,7 @@ config=json.loads(open('settings.json','r').read())
 window 		= config['window'] 		# length of observation frame (in secs)
 sample_rate = config['sample_rate'] # Hz
 sample_period 	= 1.0/sample_rate
+global n 
 n = int(window*sample_rate) 		# length of the signal and the spectrum arrays
 
 # Gravitational offsets: the x,y,z axes acceleration values at rest 
@@ -285,8 +264,9 @@ f =  open(Log_filename, "a") # append to exising file
 if not append_data:
 	f.write(File_header)
 
-print("SenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Sending UDP datagrams to: {2}, port: {3}, Display_charts: {4}".format(window, sample_rate, ipmux_addr, \
-	ipmux_port, Display_charts))
+print("\nSenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Display_charts: {2}".format(window, sample_rate, Display_charts))
+if fwd_nmea:
+	print("Sending UDP datagrams to: {0}, port: {1}".format(ipmux_addr, ipmux_port))
 print("(Edit settings.json to update these settings)\n\n")
 print(File_header+"-"*140)
 
@@ -349,7 +329,7 @@ while True:
 	freqs, acc_spectrum = transform(signal)
 
 	# Convert accelerations to heave (=vertical displacement)
-	heave_spectrum = displacement(acc_spectrum)
+	heave_spectrum = heave(freqs, acc_spectrum)
 
 	# Apply dynamic response of vessel to wave action
 	vectorized_rao = np.vectorize(rao) # enable an np array to operate a custom fucntion on all alements
@@ -357,16 +337,15 @@ while True:
 
 	if len(load_file) == 0:
 		# Save content of main arrays for debugging
-		save_arrays()
+		lb.save_arrays('npyfiles/', freqs, signal, acc_spectrum, heave_spectrum)
 
 	if acc_spectrum.mean() > 0.005:
 		# Calculate main wave parameters
-		sig_wave_height, dom_period =  calc_swh(acc_spectrum)
+		sig_wave_height, dom_period, modal_period, avg_period =  calc_swh(freqs, acc_spectrum, heave_spectrum)
 		print("Significant Wave Height: ", sig_wave_height)
 	else:
-		sig_wave_height=0.0
-		dom_period=0
-
+		sig_wave_height=dom_period=modal_period=avg_period=0.0
+	
 	if Display_charts:
 		disp_chart([float(i)/float(sample_rate) for i in range(200,400)], signal[200:400], 'Signal', 'Secs', 'Accel (m/sec2)' )
 		disp_chart(freqs, acc_spectrum,  'Acceleration Frequency Spectrum', 'freq (Hz)', 'accel (m/sec2)')
@@ -376,17 +355,18 @@ while True:
 		# disp_chart(None, clean_signal, 'Inverse Trasform of filtered signal', None, None)
 
 	# find nearby fix
-	if lb.find_nearby_fix(t):
-		lat, lon = lb.find_nearby_fix(t)
+	if lb.nearest_fix(t):
+		lat, lon = lb.nearest_fix(t)
+	else: lat = lon = 0.0
 		
 	# write variables to log file
-	t_date = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
-	t_time = datetime.datetime.fromtimestamp(t).strftime('%H:%M:%S')
+	t_date = datetime.fromtimestamp(t).strftime('%Y-%m-%d')
+	t_time = datetime.fromtimestamp(t).strftime('%H:%M:%S')
 	max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
 	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
 	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
 	log_str += f'{round(math.degrees(avg_pitch),1)},{round(math.degrees(avg_roll),1)},{round(math.degrees(max_pitch),1)},{round(math.degrees(max_roll),1)},'
-	log_str += f'{round(sig_wave_height,2)},{round(dom_period)},'	
+	log_str += f'{round(sig_wave_height,2)},{round(dom_period,1)},{round(modal_period,1)},{round(avg_period,1)},'	
 	log_str += f'{lat},{lon}'	
 	print(log_str)
 	f.write(log_str+"\r\n")
@@ -402,9 +382,9 @@ while True:
 	log = t
 	temperature = pressure = humidity = tot_elapsed = max_pitch = max_roll = min_pitch = min_roll = avg_pitch = avg_roll = 0  
 
-	today = datetime.datetime.today()
+	today = datetime.today()
 	if today.weekday() == 0 and archive_flag:
-		archive_files(f)
+		lb.archive_files(f)
 	elif today.weekday() != 0:
 		archive_flag = True
 			

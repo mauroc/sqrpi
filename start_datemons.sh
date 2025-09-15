@@ -1,0 +1,5 @@
+#!/bin/bash
+
+nohup python3  udp_read.py >/dev/null &
+nohup python3 sensorscan.py >/dev/null &
+

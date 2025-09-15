@@ -42,11 +42,11 @@ def gll(msg):
 
 def hdg(msg):
     # add the heading to the end of the headings array in rec
-    rec["heading_ar"] = np.append(rec.get("heading_ar", np.empty(0) ), float(msg.heading))
+    rec["heading_ar"]  = np.append(rec.get("heading_ar", np.empty(0) ), float(msg.heading))
 
 def hdm(msg):
     # magnetic heading
-    rec["mag_heading_ar"] = np.append(rec.get("mag_heading_ar", np.empty(0) ), float(msg.heading))
+    rec["mag_heading_ar"]  = np.append(rec.get("mag_heading_ar", np.empty(0) ), float(msg.heading))
 
 def hdt(msg):
     # magnetic heading
@@ -87,16 +87,16 @@ def ang_mean(angles, degrees=True):
         # convert to radians
         angles = [math.radians(a) for a in angles]
     
-    # Step 1 & 2: mean x and y components
+    # Step 1 & 2: mean x and y 
+    angles = [item for item in angles if item != 0] # HDT produces a lot of 0 readings 
     x = sum(math.cos(a) for a in angles) / len(angles)
     y = sum(math.sin(a) for a in angles) / len(angles)
-    
+
     # Step 3: back to angle
     avg = math.atan2(y, x)
-    
     if degrees:
         avg = math.degrees(avg)
-    
+
     # Normalize to [0, 360) or [0, 2π)
     if avg < 0:
         avg += 360 if degrees else 2*math.pi
@@ -109,7 +109,6 @@ def read_file():
     for line in file.readlines():
         try:
             msg = nmea.parse(line)
-            print(repr(msg))
         except nmea.ParseError as e:
             print('Parse error: {}'.format(e))
             continue
@@ -122,11 +121,12 @@ f =  open(Log_filename, "a") # append to exising file
 if not append_data:
 	f.write(File_header)
 
-#file = open('nmealogs.txt', encoding='utf-8') # debug mode: use to test messages from file
+#file = open('vdr_20250914.txt', encoding='utf-8') # debug mode: use to test messages from file
 t0 = time.time()
+
 while True:
 #for data_str in file.readlines(): #debug mode
-
+    
     # Receive data (up to 1024 bytes) and sender's address
     data,addr = sock.recvfrom(1024)    # comment in debug mode
     data_str=data.decode('utf-8')      # comment in debug mode
@@ -172,8 +172,8 @@ while True:
         #rec={}
         rec.clear()
         t0 = time.time()
-    
 
-
+#print("true heading", rec["true_heading_ar"], ang_mean(rec["true_heading_ar"]))
+#print("mag heading", rec["mag_heading_ar"], ang_mean(rec["mag_heading_ar"]))
 
 
