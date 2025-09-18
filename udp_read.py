@@ -103,6 +103,36 @@ def ang_mean(angles, degrees=True):
     
     return avg
 
+def ang_mean_np(angles, degrees=True):
+    """
+    Compute the average of a list/array of angles using NumPy.
+    
+    :param angles: array-like, angles (degrees if degrees=True, else radians)
+    :param degrees: whether input/output are in degrees
+    :return: average angle
+    """
+    angles = np.asarray(angles)
+    
+    if degrees:
+        # convert to radians
+        angles = np.deg2rad(angles)
+    
+    # Step 1 & 2: mean x and y components
+    x = np.mean(np.cos(angles))
+    y = np.mean(np.sin(angles))
+    
+    # Step 3: back to angle
+    avg = np.arctan2(y, x)
+    
+    if degrees:
+        avg = np.rad2deg(avg)
+    
+    # Normalize to [0, 360) or [0, 2π)
+    if avg < 0:
+        avg += 360 if degrees else 2*np.pi
+    
+    return avg
+    
 def read_file():
     file = open('nmealogs.txt', encoding='utf-8')
     

@@ -68,12 +68,6 @@ def send_to_nmea(pressure, temperature, humidity, pitch, roll, sig_wave_height):
 	print(nmea_str)
 	sock.sendto( nmea_str.encode('utf-8'), (ipmux_addr, ipmux_port))
 
-def rao(accel,freq):
-    """ Returns acceleration adjusted to account for heave RAO (=transfer function of wave/boat system) """
-    # Assumes head seas, high wavelength/loa ratio (>2)
-    # Also, from ref[3] it looks like in our frequency range it can be assumed that the heave RAO can be assumed to be reasonably close to 1
-    return accel/1
-
 def disp_led_msg(vert_acc, pitch, roll):
 	""" Alert user to excesive accel, pitch, roll values by showing different colors on the led matrix"""
 
@@ -135,85 +129,6 @@ def read_accel():
 	#vert_acc = G*(1 - (a*x + b*y + c*z))
 	return G*(a*x + b*y + c*z)
 
-def transform(signal):
-	"""
-	Transform samples signal into frequency domain. Return n-sized arrays of Frequencies (Hz) and Complex Spectrum
-	"""
-	
-	# Fast Fourier transform of signal
-	wf = np.fft.fft(signal)
-
-	# identify corresponding frequency values, in Hertz, for x axis array 
-	n_freqs = np.fft.fftfreq(n, 1/sample_rate) 
-	
-	# the fft returns both positive and negative frequencies, up to 1/2 of the sampling rate (Nyquist theorem) 
-	# We need to eliminate negative frequencies and only analyse freqs in our range of interest
-	# to limit effects of high-freq sensor noise (e.g. period > 2 sec) and DC and low-freq "blow-up"
-	# (ref 3)
-	mask 	= ((n_freqs >= min_freq) & (n_freqs <= max_freq)) 
-	freqs 	= n_freqs[mask]
-	af 		= wf[mask]
-
-	# Normalize by N to recover amplitudes in m/s²
-	accels = af / n
-
-	# return amplitude spectrum (m/s²), i.e. the module of complex array
-	# Factor 2 for one-sided spectrum (except DC/Nyquist)
-	acc_spectrum = 2 * abs(accels)   
-	return  freqs, acc_spectrum
-
-def heave(freqs, amp_spec):
-	""" 
-	Convert acceleration spectrum to heave (=vertical displacement) spectrum  by 2nd integration (ref3) 
-	Return displacement array (units: m)
-	"""
-	heave_spectrum = np.zeros_like(amp_spec)
-	nonzero = freqs > 0
-
-	heave_spectrum[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
-
-	return  heave_spectrum
-
-def calc_swh(freqs,acc_spectrum, heave_spectrum):
-
-    """ 
-    Calculate nondirectional wave action main parameters. Return Significant Wave Height (m), Dominant Period) (s), Modal Period (s), Average Period (s)
-    """
-
-    # TODO need to figure out a way to aliminate the effects of low-frequency blow-up
-    avg_window = 4
-    mavg_amp_spec = lb.moving_average(acc_spectrum, avg_window)
-
-    # Modal Period
-    # find highest point (mode) in the frequency spectrum using a moving average
-    max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)
-    modal_frequency = freqs[max_index] 
-    modal_period = 1/modal_frequency
-
-    # spectral density (ref2)
-    psd = (heave_spectrum**2)/freqs 	# Power SD (m2/hz)
-    asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
-
-    # dominant period (ref2)
-    max_index = np.argmax(psd)
-    dominant_period = 1/freqs[max_index]
-
-    # zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-    low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
-    m0  = sum(psd[low_cutoff:]*df) 
-
-    # average period (ref 2)
-    freqs2=freqs**2
-    m2=sum(np.multiply(psd,freqs2)*df)
-    avg_period = math.sqrt(m0/m2)
-    
-    # SWH is the average of the highest one-third of the waves (ref 2). NDBC calculates SWH from the m0
-    # note that this is **wave** height, so trough to crest (twice the amplitude)
-    sig_wave_height = 4 * math.sqrt(m0)
-
-    return sig_wave_height, dominant_period, modal_period, avg_period
-
-
 # load settings
 config=json.loads(open('settings.json','r').read())
 
@@ -234,6 +149,7 @@ fwd_nmea    = config['fwd_nmea']	# send SenseHat data as NMEA messages to UDP ch
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
 pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
+vessel_lw	= config['vessel_lw'] # m
 
 # Set frequency range and spectrum bandwidth. NOAA currently uses frequency bandwidths varying from 0.005 Hz at low frequencies 
 # to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
@@ -241,8 +157,7 @@ pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side par
 df = float(sample_rate)/float(n)	# bandwidth of individual frequency slot in spectrum
 min_wave_period = 4  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
 max_wave_period = 25 				# secs
-min_freq = 1/max_wave_period
-max_freq = 1/min_wave_period
+
 
 # the arrays that hold the time series and frequency spectra
 signal 			= np.zeros(n) 
@@ -326,14 +241,15 @@ while True:
 	signal = detrend(signal, type='linear')
 
 	# Convert signal to frequency domain
-	freqs, acc_spectrum = transform(signal)
+	freqs, acc_spectrum = lb.transform(signal, sample_rate, min_period=4, max_period=25)
 
 	# Convert accelerations to heave (=vertical displacement)
-	heave_spectrum = heave(freqs, acc_spectrum)
+	heave_spectrum = lb.heave(freqs, acc_spectrum)
 
 	# Apply dynamic response of vessel to wave action
-	vectorized_rao = np.vectorize(rao) # enable an np array to operate a custom fucntion on all alements
-	heave_spectrum = vectorized_rao(heave_spectrum, freqs)
+	#vectorized_rao = np.vectorize(lb.inv_rao) # enable an np array to operate a custom function on all alements
+	#heave_spectrum = vectorized_rao(heave_spectrum, freqs, vessel_lw, avg_pitch, avg_roll)
+	heave_spectrum = lb.inv_rao(heave_spectrum, freqs, vessel_lw, avg_pitch, avg_roll)
 
 	if len(load_file) == 0:
 		# Save content of main arrays for debugging
@@ -341,7 +257,7 @@ while True:
 
 	if acc_spectrum.mean() > 0.005:
 		# Calculate main wave parameters
-		sig_wave_height, dom_period, modal_period, avg_period =  calc_swh(freqs, acc_spectrum, heave_spectrum)
+		sig_wave_height, dom_period, modal_period, avg_period =  lb.calc_swh(freqs, acc_spectrum, heave_spectrum)
 		print("Significant Wave Height: ", sig_wave_height)
 	else:
 		sig_wave_height=dom_period=modal_period=avg_period=0.0
