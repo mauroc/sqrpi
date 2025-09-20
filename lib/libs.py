@@ -3,6 +3,7 @@ import math
 from datetime import datetime
 import time
 import os
+from scipy.ndimage import gaussian_filter1d
 import pdb
 
 Log_filename    = "log_nmea.csv"
@@ -36,14 +37,14 @@ def save_arrays(npy_dir, freqs, signal, acc_spectrum, heave_spectrum):
 	np.save(f'{npy_dir}freqs{now}', freqs)
 	delete_old_files(npy_dir, days=3)
 
-def archive_files(f):
+def archive_files(f, file_header):
 	""" Copy log_file to an archive file with today's date """
 	f.close()
-	archive_filename="log_sec"+today.strftime("_%Y_%m_%d")+".csv"
+	archive_filename="log_sec"+ datetime.today.strftime("_%Y_%m_%d")+".csv"
 	os.system("cp {0} {1}".format(Log_filename,archive_filename))	
 	f =  open(Log_filename, "w")
-	f.write(File_header)					
-	archive_flag = False
+	f.write(file_header)					
+	return False
      
 def moving_average(series, n=3):
     """ 
@@ -138,19 +139,20 @@ def transform(signal, sample_rate, min_period, max_period):
     acc_spectrum = 2 * abs(accels)   
     return  freqs, acc_spectrum
 
-def calc_swh(freqs,acc_spectrum, heave_spectrum):
+def calc_swh(freqs, df, acc_spectrum, heave_spectrum):
 
     """ 
     Calculate nondirectional wave action main parameters. Return Significant Wave Height (m), Dominant Period) (s), Modal Period (s), Average Period (s)
     """
 
     # TODO need to figure out a way to aliminate the effects of low-frequency blow-up
-    avg_window = 4
-    mavg_amp_spec = lb.moving_average(acc_spectrum, avg_window)
 
     # Modal Period
-    # find highest point (mode) in the frequency spectrum using a moving average
-    max_index = np.argmax(mavg_amp_spec) + int(avg_window/2) # the moving average array drops avg_window elements (1/2 on each side)
+    # Smooth the spectrum for more accurate identification of modal point
+    gauss = gaussian_filter1d(acc_spectrum, sigma=2)
+    max_index = np.argmax(gauss)
+    
+    # find highest point (mode) in the frequency 
     modal_frequency = freqs[max_index] 
     modal_period = 1/modal_frequency
 
@@ -158,7 +160,7 @@ def calc_swh(freqs,acc_spectrum, heave_spectrum):
     psd = (heave_spectrum**2)/freqs 	# Power SD (m2/hz)
     asd = np.sqrt(psd) 			# Amplitude SD (m/Hz^1/2)
 
-    # dominant period (ref2)
+    # Dominant period (ref2)
     max_index = np.argmax(psd)
     dominant_period = 1/freqs[max_index]
 
@@ -166,7 +168,7 @@ def calc_swh(freqs,acc_spectrum, heave_spectrum):
     low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
     m0  = sum(psd[low_cutoff:]*df) 
 
-    # average period (ref 2)
+    # Average period (ref 2)
     freqs2=freqs**2
     m2=sum(np.multiply(psd,freqs2)*df)
     avg_period = math.sqrt(m0/m2)

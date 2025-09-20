@@ -34,8 +34,10 @@ sock.bind(("", UDP_PORT))
 rec = defaultdict(lambda: 0)
 
 def gll(msg):
-    lat = float(msg.lat)/100 if msg.lat_dir == "N"  else -float(msg.lat)/100
-    lon = float(msg.lon)/100 if msg.lon_dir == "E"  else -float(msg.lon)/100
+    lat_enc = float(msg.lat)/100 if msg.lat_dir == "N"  else -float(msg.lat)/100
+    lon_enc = float(msg.lon)/100 if msg.lon_dir == "E"  else -float(msg.lon)/100
+    lat = int(lat_enc) + (lat_enc % int(lat_enc))/0.6
+    lon = int(lon_enc) + (lon_enc % int(lon_enc))/0.6
     rec['lat'] = lat # we only record the last latitude
     rec['lon'] = lon # we only record the last longitude
     return 
@@ -165,9 +167,11 @@ while True:
         continue
 
     # Decode the received bytes to a string (assuming UTF-8 encoding)
-    message = nmea.parse(data_str)
-    
-    print(f"Decoded message: {message}")
+    try:
+        message = nmea.parse(data_str)
+        print(f"Parsed message: {message}")
+    except:
+        print("Parsing Error ******************", data_str )
 
     msg_type = message.sentence_type.lower()
 
@@ -177,7 +181,7 @@ while True:
         try:
            decoder(message)
         except:
-           print("Parsing Error *********************")
+           print("Decoding Error *********************")
     else:
         print('undefined message type: ', msg_type)
     
@@ -186,7 +190,7 @@ while True:
         # Once every Rec_interval (e.g. 1 minute), create the CSV record
         try:
             rec_str  = f'{round(time.time(),3)},'
-            rec_str += f'{round(rec["lat"],3)},{round(rec["lon"],3)},' 
+            rec_str += f'{round(rec["lat"],5)},{round(rec["lon"],5)},' 
             rec_str += f'{round(rec["spd_over_grnd_kts_ar"].mean(),3)},{round(ang_mean(rec["true_track_ar"])) },'
             rec_str += f'{round(ang_mean(rec["heading_ar"]))},{round(ang_mean(rec["mag_heading_ar"]))},{round(ang_mean(rec["true_heading_ar"]))},'
             rec_str += f'{round(rec["wind_speed_ar"].mean(),2)},{round(ang_mean(rec["wind_angle_ar"]))},'

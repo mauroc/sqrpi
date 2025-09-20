@@ -28,10 +28,6 @@ Display_charts 	= False
 Debug_on 		= False
 
 # functions
-def moving_average(a, n=3):
-    ret = np.cumsum(a, dtype=float)
-    ret[n:] = ret[n:] - ret[:-n]
-    return ret[n - 1:] / n
 
 def delete_old_files(directory, days=3):
 	"""

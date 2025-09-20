@@ -223,7 +223,6 @@ while True:
 			# Simulated signal
 			tm = np.arange(n) / sample_rate
 			signal = 2.0*np.sin(2*np.pi*0.05*tm) + 1*np.sin(2*np.pi*0.2*tm) + 0.05*np.random.randn(n)
-	
 
 	# *** Data Analysis Step ***
 
@@ -256,8 +255,9 @@ while True:
 		lb.save_arrays('npyfiles/', freqs, signal, acc_spectrum, heave_spectrum)
 
 	if acc_spectrum.mean() > 0.005:
+	#if True:
 		# Calculate main wave parameters
-		sig_wave_height, dom_period, modal_period, avg_period =  lb.calc_swh(freqs, acc_spectrum, heave_spectrum)
+		sig_wave_height, dom_period, modal_period, avg_period =  lb.calc_swh(freqs, df, acc_spectrum, heave_spectrum)
 		print("Significant Wave Height: ", sig_wave_height)
 	else:
 		sig_wave_height=dom_period=modal_period=avg_period=0.0
@@ -294,13 +294,13 @@ while True:
 		send_to_nmea(pressure, temperature, humidity, avg_pitch, avg_roll, sig_wave_height)
 
 	# reset variables for new loop
-	signal.fill(0) #= [0 for x in signal] 
+	signal.fill(0)
 	log = t
 	temperature = pressure = humidity = tot_elapsed = max_pitch = max_roll = min_pitch = min_roll = avg_pitch = avg_roll = 0  
 
 	today = datetime.today()
 	if today.weekday() == 0 and archive_flag:
-		lb.archive_files(f)
+		archive_flag = lb.archive_files(f, File_header)
 	elif today.weekday() != 0:
 		archive_flag = True
 			
