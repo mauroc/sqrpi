@@ -34,6 +34,7 @@ sock.bind(("", UDP_PORT))
 rec = defaultdict(lambda: 0)
 
 def gll(msg):
+    # lat and lon are encoded into a single number e.g. 3728.2786 and use minutes. Convert them to decimals
     lat_enc = float(msg.lat)/100 if msg.lat_dir == "N"  else -float(msg.lat)/100
     lon_enc = float(msg.lon)/100 if msg.lon_dir == "E"  else -float(msg.lon)/100
     lat = int(lat_enc) + (lat_enc % int(lat_enc))/0.6
@@ -147,11 +148,14 @@ def read_file():
 
 #pdb.set_trace()
 # initialize log file
-print(File_header)
+print(File_header)  
+#pdb.set_trace()
+
 append_data = os.path.exists(Log_filename)
 f =  open(Log_filename, "a") # append to exising file
 if not append_data:
-	f.write(File_header)
+    f.write(File_header)
+    f.flush()
 
 #file = open('vdr_20250914.txt', encoding='utf-8') # debug mode: use to test messages from file
 t0 = time.time()

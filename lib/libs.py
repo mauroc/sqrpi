@@ -32,7 +32,7 @@ def save_arrays(npy_dir, freqs, signal, acc_spectrum, heave_spectrum):
 	""" Save signal, spectrum arrays etc. to a .npy file for debugging/analysis"""
 	now = datetime.now().strftime("_%Y_%m_%d_%H_%M")
 	np.save(f'{npy_dir}signal{now}', signal)
-	np.save(f'{npy_dir}amp_spec{now}', acc_spectrum)
+	np.save(f'{npy_dir}acc_spec{now}', acc_spectrum)
 	np.save(f'{npy_dir}heave_spectrum{now}', heave_spectrum)
 	np.save(f'{npy_dir}freqs{now}', freqs)
 	delete_old_files(npy_dir, days=3)
@@ -97,15 +97,15 @@ def nearest_fix(log_time, look_back=180):
     else:
         return None
 
-def heave(freqs, amp_spec):
+def heave(freqs, acc_spec):
 	""" 
 	Convert acceleration spectrum to heave (=vertical displacement) spectrum  by 2nd integration (ref3) 
 	Return displacement array (units: m)
 	"""
-	heave_spectrum = np.zeros_like(amp_spec)
+	heave_spectrum = np.zeros_like(acc_spec)
 	nonzero = freqs > 0
 
-	heave_spectrum[nonzero] = amp_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
+	heave_spectrum[nonzero] = acc_spec[nonzero] / ((2 * math.pi * freqs[nonzero])**2 )
 
 	return  heave_spectrum
 
@@ -206,3 +206,6 @@ def inv_rao(heaves,freqs, vessel_lw, avg_pitch, avg_roll):
     heaves[mask] *= 0.9 if waves_broadside else 1.1
     
     return heaves
+
+def test_func():
+     return "pluto"

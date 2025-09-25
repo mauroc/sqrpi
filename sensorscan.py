@@ -106,9 +106,11 @@ def read_accel():
 	x = acceleration['x']-offset_x
 	y = acceleration['y']-offset_y
 	z = acceleration['z']-offset_z
-	# picth is positive when bow is up, roll is positive when starboard side is up
-	pitch = gyro['pitch']
-	roll  = gyro['roll']
+	
+	# pitch is positive when bow is up, roll is positive when starboard side is up
+	pitch = gyro['pitch']-offset_pitch
+	roll  = gyro['roll']-offset_roll
+	#print(math.degrees(gyro['roll']) , math.degrees(offset_roll))
 
 	# calculate max, min, average pitch and roll
 	max_pitch = max(max_pitch, pitch)
@@ -127,7 +129,9 @@ def read_accel():
 	c = math.cos(roll)*math.cos(pitch)
 	
 	#vert_acc = G*(1 - (a*x + b*y + c*z))
-	return G*(a*x + b*y + c*z)
+	vert_acc = G*(a*x + b*y + c*z)
+	print("vert acc: {}  roll_d: {}, pitch_d: {}".format(round(vert_acc,3), round(math.degrees(roll),2), round(math.degrees(pitch),2)), end='\r')
+	return vert_acc
 
 # load settings
 config=json.loads(open('settings.json','r').read())
@@ -144,6 +148,8 @@ n = int(window*sample_rate) 		# length of the signal and the spectrum arrays
 offset_x	= config['offset_x']	
 offset_y	= config['offset_y']	
 offset_z 	= config['offset_z'] 	
+offset_pitch= math.radians(config['offset_pitch_d']) 	
+offset_roll = math.radians(config['offset_roll_d']) 	
 
 fwd_nmea    = config['fwd_nmea']	# send SenseHat data as NMEA messages to UDP channel
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
@@ -155,8 +161,8 @@ vessel_lw	= config['vessel_lw'] # m
 # to 0.02 Hz at high frequencies. Older systems sum from 0.03 Hz to 0.40 Hz with a constant bandwidth of 0.01Hz.
 # We are applying a simplified constant bandwidth approach since np.fft does not allow to define variable size frequency slots. 
 df = float(sample_rate)/float(n)	# bandwidth of individual frequency slot in spectrum
-min_wave_period = 4  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 2 - 30 secs
-max_wave_period = 25 				# secs
+min_period = 4  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 3 - 30 secs
+max_period = 25 				# secs
 
 
 # the arrays that hold the time series and frequency spectra
@@ -214,6 +220,7 @@ while True:
 			if wait_time>0:
 				time.sleep(wait_time)
 			tot_elapsed += time.time()-t
+			
 
 	else:
 		load_file = input("Load existing samples file? (Enter to skip) ")
@@ -228,7 +235,7 @@ while True:
 
 	sense.clear
 	#pdb.set_trace()
-	
+
 	if pitch_on_y_axis:
 		# invert axis of roll and pitch. Default is Rpi's wider side oriented parallel to boat's bow/sern axis 
 		pitch, roll = roll, pitch
