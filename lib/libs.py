@@ -32,7 +32,7 @@ def save_arrays(npy_dir, freqs, signal, acc_spectrum, heave_spectrum):
 	""" Save signal, spectrum arrays etc. to a .npy file for debugging/analysis"""
 	now = datetime.now().strftime("_%Y_%m_%d_%H_%M")
 	np.save(f'{npy_dir}signal{now}', signal)
-	np.save(f'{npy_dir}acc_spec{now}', acc_spectrum)
+	np.save(f'{npy_dir}acc_spectrum{now}', acc_spectrum)
 	np.save(f'{npy_dir}heave_spectrum{now}', heave_spectrum)
 	np.save(f'{npy_dir}freqs{now}', freqs)
 	delete_old_files(npy_dir, days=3)
@@ -165,7 +165,7 @@ def calc_swh(freqs, df, acc_spectrum, heave_spectrum):
     dominant_period = 1/freqs[max_index]
 
     # zeroth moment (m₀), or the area under the nondirectional wave spectrum curve, representing the total variance of the wave elevation. 
-    low_cutoff = 2 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
+    low_cutoff = 0 # TODO experimenting with limiting impact of low-freq blow up on SFW calc
     m0  = sum(psd[low_cutoff:]*df) 
 
     # Average period (ref 2)

@@ -23,6 +23,7 @@ import pylab as pl # sudo apt-get install python-matplotlib
 import pdb
 from scipy.signal import detrend
 import imp
+import sys
 
 print(time.time())
 
@@ -90,18 +91,18 @@ def read_accel():
 	"""
 	Read values from senors and calculate vertical acceleration relative to the earth frame. 
 	Return vertical (minus gravitational), accel relative to earth frame (in m/sec2)
-	Conventions (orientation == 0):
-		with RPI's longer side oriented with vessel's longitudinal (bow-stern) axis, LED matrix forward:
-		- ax is acceleration component along, positive when bow is up 
+	Conventions (orientation == 0 in settings.json):
+		with RPI's longer side parallel with vessel's longitudinal (bow-stern) axis, LED matrix forward:
+		- ax is acceleration component along bow-stern axis, positive when bow is up 
 		- ay is acceleration component along beam axis, positive when starboard side is up
-		- az is vertical acceleration component in vessel's frame (i.e. parallel to mast), including gravity
+		- az is vertical acceleration component relative to vessel's frame (i.e. parallel to mast), and includes gravity
 		- pitch is positive when bow is up
 		- roll is positive with starboard side is up
 	"""
 
 	global temperature, pressure, humidity, pitch, roll, max_pitch, max_roll, min_pitch, min_roll, avg_pitch, avg_roll
 
-	# read acceleration from IMU
+	# read acceleration from IMU, relative to vessel frame
 	acceleration = sense.get_accelerometer_raw()
 	gyro         = sense.get_orientation_radians()
 	#gyro_deg = sense.get_orientation_degrees()
@@ -109,7 +110,7 @@ def read_accel():
 	pressure    += sense.get_pressure()
 	humidity    += sense.get_humidity()
 
-	# accelerations relative to boat's frame
+	# accelerations and angles relative to vessel's frame
 	ax = G * (acceleration['x']-offset_x)
 	ay = G * (acceleration['y']-offset_y)
 	az = G * (acceleration['z']-offset_z)
@@ -118,7 +119,7 @@ def read_accel():
 	roll  = gyro['roll']-offset_roll
 
 	if orientation==1:
-		# invert axis of roll and pitch. Default is Rpi's wider side oriented parallel to boat's bow/sern axis 
+		# invert axis of roll and pitch. Default (orientation==0) is Rpi's wider side oriented parallel to boat's bow/stern axis 
 		pitch, roll = roll, pitch
 		ax, ay = ay, ax
 
@@ -130,7 +131,7 @@ def read_accel():
 	avg_pitch += pitch**2 # calculate RMS
 	avg_roll  += roll**2  # calculate RMS
 
-	# coeffs for Euler's tranformation 
+	# Transform vertical acceleration to earth frame using Euler's formula
 	# (see ref 1)
 	az_earth = (-math.sin(pitch) * ax
     	+ math.sin(roll) * math.cos(pitch) * ay
@@ -171,8 +172,11 @@ vessel_lw	= config['vessel_lw'] # m
 # We are applying a simplified constant bandwidth approach since np.fft does not allow to define variable size frequency slots. 
 df = float(sample_rate)/float(n)	# bandwidth of individual frequency slot in spectrum
 min_period = 4  				# secs. NOAA range: 0.0325 to 0.485 Hz -> 3 - 30 secs
-max_period = 25 				# secs
+max_period = 20 				# secs
 
+if 1/min_period > sample_rate/2:
+	print("min period too low") # exceeds nyquist frequency
+	sys.exit(1)
 
 # the arrays that hold the time series and frequency spectra
 signal 			= np.zeros(n) 
@@ -218,7 +222,7 @@ while True:
 			vert_acc = read_accel()
 			
 			# use led matrix of sensehat to warn of excessive roll, pitch and vertical acc
-			#disp_led_msg(vert_acc, pitch, roll)
+			disp_led_msg(vert_acc, pitch, roll)
 
 			# add to sample array
 			signal[sample]=vert_acc
@@ -228,9 +232,7 @@ while True:
 			wait_time = 1/sample_rate - elapsed_time
 			if wait_time>0:
 				time.sleep(wait_time)
-			tot_elapsed += time.time()-t
-			
-
+			tot_elapsed += time.time()-t		
 	else:
 		load_file = input("Load existing samples file? (Enter to skip) ")
 		if len(load_file)>0:
@@ -243,7 +245,6 @@ while True:
 	# *** Data Analysis Step ***
 
 	sense.clear
-	#pdb.set_trace()
 
 	# Calculate averages / RMSs from cumulative values
 	temperature, pressure, humidity, avg_pitch, avg_roll = temperature/n, pressure/n, humidity/n, math.sqrt(avg_pitch/n), math.sqrt(avg_roll/n)
@@ -252,14 +253,12 @@ while True:
 	signal = detrend(signal, type='linear')
 
 	# Convert signal to frequency domain
-	freqs, acc_spectrum = lb.transform(signal, sample_rate, min_period=4, max_period=25)
+	freqs, acc_spectrum = lb.transform(signal, sample_rate, min_period=min_period, max_period=max_period)
 
 	# Convert accelerations to heave (=vertical displacement)
 	heave_spectrum = lb.heave(freqs, acc_spectrum)
 
 	# Apply dynamic response of vessel to wave action
-	#vectorized_rao = np.vectorize(lb.inv_rao) # enable an np array to operate a custom function on all alements
-	#heave_spectrum = vectorized_rao(heave_spectrum, freqs, vessel_lw, avg_pitch, avg_roll)
 	heave_spectrum = lb.inv_rao(heave_spectrum, freqs, vessel_lw, avg_pitch, avg_roll)
 
 	if len(load_file) == 0:
@@ -267,7 +266,6 @@ while True:
 		lb.save_arrays('npyfiles/', freqs, signal, acc_spectrum, heave_spectrum)
 
 	if acc_spectrum.mean() > 0.005:
-	#if True:
 		# Calculate main wave parameters
 		sig_wave_height, dom_period, modal_period, avg_period =  lb.calc_swh(freqs, df, acc_spectrum, heave_spectrum)
 		print("Significant Wave Height: ", sig_wave_height)
