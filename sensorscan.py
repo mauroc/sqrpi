@@ -90,6 +90,13 @@ def read_accel():
 	"""
 	Read values from senors and calculate vertical acceleration relative to the earth frame. 
 	Return vertical (minus gravitational), accel relative to earth frame (in m/sec2)
+	Conventions (orientation == 0):
+		with RPI's longer side oriented with vessel's longitudinal (bow-stern) axis, LED matrix forward:
+		- ax is acceleration component along, positive when bow is up 
+		- ay is acceleration component along beam axis, positive when starboard side is up
+		- az is vertical acceleration component in vessel's frame (i.e. parallel to mast), including gravity
+		- pitch is positive when bow is up
+		- roll is positive with starboard side is up
 	"""
 
 	global temperature, pressure, humidity, pitch, roll, max_pitch, max_roll, min_pitch, min_roll, avg_pitch, avg_roll
@@ -103,34 +110,36 @@ def read_accel():
 	humidity    += sense.get_humidity()
 
 	# accelerations relative to boat's frame
-	x = acceleration['x']-offset_x
-	y = acceleration['y']-offset_y
-	z = acceleration['z']-offset_z
+	ax = G * (acceleration['x']-offset_x)
+	ay = G * (acceleration['y']-offset_y)
+	az = G * (acceleration['z']-offset_z)
 	
-	# pitch is positive when bow is up, roll is positive when starboard side is up
 	pitch = gyro['pitch']-offset_pitch
 	roll  = gyro['roll']-offset_roll
-	#print(math.degrees(gyro['roll']) , math.degrees(offset_roll))
+
+	if orientation==1:
+		# invert axis of roll and pitch. Default is Rpi's wider side oriented parallel to boat's bow/sern axis 
+		pitch, roll = roll, pitch
+		ax, ay = ay, ax
 
 	# calculate max, min, average pitch and roll
 	max_pitch = max(max_pitch, pitch)
 	min_pitch = min(min_pitch, pitch)
 	max_roll = max(max_roll, roll)
 	min_roll = min(min_roll, roll)
-	#avg_pitch += abs(pitch if pitch < Pi else (2*Pi - pitch))
-	#avg_roll  += abs(roll  if roll  < Pi else (roll - 2*Pi))
 	avg_pitch += pitch**2 # calculate RMS
 	avg_roll  += roll**2  # calculate RMS
 
 	# coeffs for Euler's tranformation 
 	# (see ref 1)
-	a = -math.sin(pitch)
-	b = math.sin(roll)*math.cos(pitch)
-	c = math.cos(roll)*math.cos(pitch)
+	az_earth = (-math.sin(pitch) * ax
+    	+ math.sin(roll) * math.cos(pitch) * ay
+        + math.cos(roll) * math.cos(pitch) * az)
 	
-	#vert_acc = G*(1 - (a*x + b*y + c*z))
-	vert_acc = G*(a*x + b*y + c*z)
-	print("vert acc: {}  roll_d: {}, pitch_d: {}".format(round(vert_acc,3), round(math.degrees(roll),2), round(math.degrees(pitch),2)), end='\r')
+	vert_acc = az_earth - G
+
+	print("vert acc: {}  roll_d: {}, pitch_d: {} ax: {} ay: {} az: {}    "\
+	   .format(round(vert_acc,3), round(math.degrees(roll),2), round(math.degrees(pitch),2), round(ax,3), round(ay,3), round(az,3) ), end='\r')
 	return vert_acc
 
 # load settings
@@ -154,7 +163,7 @@ offset_roll = math.radians(config['offset_roll_d'])
 fwd_nmea    = config['fwd_nmea']	# send SenseHat data as NMEA messages to UDP channel
 ipmux_addr 	= config['ipmux_addr']  # destination of NMEA UDP messages 
 ipmux_port	= config['ipmux_port'] 
-pitch_on_y_axis	= config['pitch_on_y_axis'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
+orientation	= config['orientation'] # Rpi oriented with longest side parallel to fore-aft line of vessel (0) or perpendicular (1)
 vessel_lw	= config['vessel_lw'] # m
 
 # Set frequency range and spectrum bandwidth. NOAA currently uses frequency bandwidths varying from 0.005 Hz at low frequencies 
@@ -209,7 +218,7 @@ while True:
 			vert_acc = read_accel()
 			
 			# use led matrix of sensehat to warn of excessive roll, pitch and vertical acc
-			disp_led_msg(vert_acc, pitch, roll)
+			#disp_led_msg(vert_acc, pitch, roll)
 
 			# add to sample array
 			signal[sample]=vert_acc
@@ -235,10 +244,6 @@ while True:
 
 	sense.clear
 	#pdb.set_trace()
-
-	if pitch_on_y_axis:
-		# invert axis of roll and pitch. Default is Rpi's wider side oriented parallel to boat's bow/sern axis 
-		pitch, roll = roll, pitch
 
 	# Calculate averages / RMSs from cumulative values
 	temperature, pressure, humidity, avg_pitch, avg_roll = temperature/n, pressure/n, humidity/n, math.sqrt(avg_pitch/n), math.sqrt(avg_roll/n)

@@ -1,14 +1,14 @@
 {
 	"window": 180, 
 	"sample_rate": 4, 
-	"offset_z": 0.9911, 
-	"offset_x": -0.207,
-	"offset_y":  0.0153 ,
+	"offset_x": -0.0154,
+	"offset_y":  0.0117 ,
+	"offset_z": -0.0087, 
 	"offset_pitch_d": 0.57,
 	"offset_roll_d": 0.48,
 	"fwd_nmea": false,
 	"ipmux_addr": "localhost", 
 	"ipmux_port": 10110,
-	"pitch_on_y_axis": 1,
+	"orientation": 0,
 	"vessel_lw": 10 
 }
