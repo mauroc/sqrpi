@@ -34,7 +34,6 @@ In_mercury_bar 	= 29.53
 Ft_mt       	= 3.28  # feet/meter
 Log_filename    = "log_sec.csv"
 File_header		= """timestamp,date,time,temperature,pressure,humidity,avg_pitch,avg_roll,max_pitch,max_roll,wave_height,dom_period,modal_period,avg_period,lat,lon\r\n"""
-Display_charts 	= False
 Debug_on 		= False
 
 # functions
@@ -78,14 +77,6 @@ def disp_led_msg(vert_acc, pitch, roll):
 		sense.clear(255,0,0)
 	if abs(roll) > Pi/6:
 		sense.clear(0,0,255)
-
-def disp_chart(x_values, y_values, title, xlabel, ylabel):
-	title and pl.title(title)
-	xlabel and pl.xlabel(xlabel)
-	ylabel and pl.ylabel(ylabel)
-	if y_values:
-		pl.plot(x_values , y_values)
-		pl.show()
 
 def read_accel():
 	"""
@@ -139,9 +130,24 @@ def read_accel():
 	
 	vert_acc = az_earth - G
 
-	print("vert acc: {}  roll_d: {}, pitch_d: {} ax: {} ay: {} az: {}    "\
-	   .format(round(vert_acc,3), round(math.degrees(roll),2), round(math.degrees(pitch),2), round(ax,3), round(ay,3), round(az,3) ), end='\r')
+	print("v-acc: {}\troll_d: {} \tpitch_d: {} \tax: {} \tay: {} \taz: {}    "\
+	   .format(round(vert_acc,3), round(math.degrees(roll),2), round(math.degrees(pitch),2), round(ax,3), round(ay,3), round(az,3) ), end='\r')	
+
 	return vert_acc
+
+def write_log(f):
+	global max_roll, max_pitch
+	t_date = datetime.fromtimestamp(t).strftime('%Y-%m-%d')
+	t_time = datetime.fromtimestamp(t).strftime('%H:%M:%S')
+	max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
+	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
+	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
+	log_str += f'{round(math.degrees(avg_pitch),1)},{round(math.degrees(avg_roll),1)},{round(math.degrees(max_pitch),1)},{round(math.degrees(max_roll),1)},'
+	log_str += f'{round(sig_wave_height,2)},{round(dom_period,1)},{round(modal_period,1)},{round(avg_period,1)},'	
+	log_str += f'{lat},{lon}'	
+	print(log_str)
+	f.write(log_str+"\r\n")
+	f.flush()
 
 # load settings
 config=json.loads(open('settings.json','r').read())
@@ -198,7 +204,7 @@ f =  open(Log_filename, "a") # append to exising file
 if not append_data:
 	f.write(File_header)
 
-print("\nSenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}, Display_charts: {2}".format(window, sample_rate, Display_charts))
+print("\nSenseHat for OpenCPN: v 0.1. Time window: {0} sec., Sample rate: {1}".format(window, sample_rate))
 if fwd_nmea:
 	print("Sending UDP datagrams to: {0}, port: {1}".format(ipmux_addr, ipmux_port))
 print("(Edit settings.json to update these settings)\n\n")
@@ -272,32 +278,14 @@ while True:
 	else:
 		sig_wave_height=dom_period=modal_period=avg_period=0.0
 	
-	if Display_charts:
-		disp_chart([float(i)/float(sample_rate) for i in range(200,400)], signal[200:400], 'Signal', 'Secs', 'Accel (m/sec2)' )
-		disp_chart(freqs, acc_spectrum,  'Acceleration Frequency Spectrum', 'freq (Hz)', 'accel (m/sec2)')
-		disp_chart(freqs, heave_spectrum, 'Displacement Frequency Spectrum', 'freq (Hz)', 'Height (m)')
-		# clean_signal=np.fft.ifft(af) 
-		# clean_signal = [x for x in clean_signal]
-		# disp_chart(None, clean_signal, 'Inverse Trasform of filtered signal', None, None)
-
 	# find nearby fix
 	if lb.nearest_fix(t):
 		lat, lon = lb.nearest_fix(t)
 	else: lat = lon = 0.0
 		
 	# write variables to log file
-	t_date = datetime.fromtimestamp(t).strftime('%Y-%m-%d')
-	t_time = datetime.fromtimestamp(t).strftime('%H:%M:%S')
-	max_roll  = max_roll  if abs(max_roll)  > abs(min_roll)  else min_roll
-	max_pitch = max_pitch if abs(max_pitch) > abs(min_pitch) else min_pitch
-	log_str =  f'{round(t,3)},{t_date},{t_time},{round(temperature)},{round(pressure)},{round(humidity)},'
-	log_str += f'{round(math.degrees(avg_pitch),1)},{round(math.degrees(avg_roll),1)},{round(math.degrees(max_pitch),1)},{round(math.degrees(max_roll),1)},'
-	log_str += f'{round(sig_wave_height,2)},{round(dom_period,1)},{round(modal_period,1)},{round(avg_period,1)},'	
-	log_str += f'{lat},{lon}'	
-	print(log_str)
-	f.write(log_str+"\r\n")
-	f.flush()
-	
+	write_log(f)
+
 	#sense.show_message("Temp: {0} Press: {1} Hum: {2} Pith: {3} Roll: {4} SWH: {5} Per: {6}".format(temperature, pressure, humidity, pitch, roll, sig_wave_height, dom_period))
 	if fwd_nmea:
 		# send sensor data to UDP channel
